@@ -41,15 +41,24 @@ pub type float = Float;
 pub type text = String;
 
 pub fn parse_id_<'a>(st: State) -> impl Parser<&'a str, Output = id> {
+    fn is_alphabetic(c: char) -> bool {
+        c.is_alphabetic()
+    }
+    fn is_alphanumeric(c: char) -> bool {
+        c.is_alphanumeric()
+    }
+    fn cons((x, xs): (char, Vec<char>)) -> String {
+        vec![x].into_iter().chain(xs.into_iter()).collect()
+    }
     st.indent();
     println!("parse_id");
-    satisfy(|c: char| c.is_alphabetic())
-        .and(many(satisfy(|c: char| c.is_alphanumeric())))
-        .map(|(x, xs): (char, Vec<char>)| vec![x].into_iter().chain(xs.into_iter()).collect())
+    satisfy(is_alphabetic)
+        .and(many(satisfy(is_alphanumeric)))
+        .map(cons)
 }
 
 parser! {
-    fn parse_id['a](st: State)(&'a str) -> id
+    pub fn parse_id['a](st: State)(&'a str) -> id
     where []
     {
         parse_id_(*st)
@@ -73,7 +82,7 @@ pub fn parse_bool_<'a>(st: State) -> impl Parser<&'a str, Output = bool> {
 }
 
 parser! {
-    fn parse_bool['a](st: State)(&'a str) -> bool
+    pub fn parse_bool['a](st: State)(&'a str) -> bool
     where []
     {
         parse_bool_(*st)
@@ -93,20 +102,22 @@ fn test_parse_bool() {
 }
 
 pub fn parse_nat_<'a>(st: State) -> impl Parser<&'a str, Output = nat> {
+    fn is_numeric(c: char) -> bool {
+        c.is_numeric()
+    }
+    fn parse_integer<'a>(xs: Vec<char>) -> impl Parser<&'a str, Output = Integer> {
+        match Integer::parse(xs.into_iter().collect::<String>()).map(Integer::from) {
+            Ok(int) => value(int).left(),
+            Err(_err) => unexpected_any("nat").right(),
+        }
+    }
     st.indent();
     println!("parse_nat");
-    many(satisfy(|c: char| c.is_numeric()))
-        .skip(spaces())
-        .then(|xs: Vec<char>| {
-            match Integer::parse(xs.into_iter().collect::<String>()).map(Integer::from) {
-                Ok(int) => value(int).left(),
-                Err(_err) => unexpected_any("nat").right(),
-            }
-        })
+    many(satisfy(is_numeric)).skip(spaces()).then(parse_integer)
 }
 
 parser! {
-    fn parse_nat['a](st: State)(&'a str) -> nat
+    pub fn parse_nat['a](st: State)(&'a str) -> nat
     where []
     {
         parse_nat_(*st)
@@ -133,24 +144,28 @@ fn test_parse_nat() {
 // }
 
 pub fn parse_float_<'a>(st: State) -> impl Parser<&'a str, Output = float> {
+    fn is_numeric(c: char) -> bool {
+        c.is_numeric()
+    }
+    fn parse_float<'a>(xs: Vec<char>) -> impl Parser<&'a str, Output = Float> {
+        fn with_53<T>(v: T) -> Float
+        where
+            Float: rug::Assign<T>,
+        {
+            Float::with_val(53, v)
+        }
+        match Float::parse(xs.into_iter().collect::<String>()).map(with_53) {
+            Ok(f) => value(f).left(),
+            Err(_err) => unexpected_any("float").right(),
+        }
+    }
     st.indent();
     println!("parse_float");
-    many(satisfy(|c: char| c.is_numeric()))
-        .skip(spaces())
-        .then(|xs: Vec<char>| {
-            match Float::parse(xs.into_iter().collect::<String>()).map(|v| Float::with_val(53, v)) {
-                Ok(f) => value(f).left(),
-                Err(_err) => unexpected_any("float").right(),
-            }
-        })
-    // static REGEX: Lazy<Regex> =
-    //     Lazy::new(||
-    // Regex::new("[-+]?(([0-9]*[.][0-9]+([ed][-+]?[0-9]+)?)|(inf)|(nan))").
-    // unwrap()); captures(&*REGEX).skip(spaces()).map(parse_float_match)
+    many(satisfy(is_numeric)).skip(spaces()).then(parse_float)
 }
 
 parser! {
-    fn parse_float['a](st: State)(&'a str) -> float
+    pub fn parse_float['a](st: State)(&'a str) -> float
     where []
     {
         parse_float_(*st)
@@ -169,15 +184,16 @@ fn test_parse_float() {
 
 // jww (2021-11-18): What is the grammer here?
 pub fn parse_char_<'a>(st: State) -> impl Parser<&'a str, Output = char> {
+    fn not_quote(c: char) -> bool {
+        c != '\''
+    }
     st.indent();
     println!("parse_char");
-    char('\'')
-        .with(satisfy(|c: char| c != '\''))
-        .skip(char('\''))
+    char('\'').with(satisfy(not_quote)).skip(char('\''))
 }
 
 parser! {
-    fn parse_char['a](st: State)(&'a str) -> char
+    pub fn parse_char['a](st: State)(&'a str) -> char
     where []
     {
         parse_char_(*st)
@@ -186,15 +202,18 @@ parser! {
 
 // jww (2021-11-18): What is the grammer here?
 pub fn parse_text_<'a>(st: State) -> impl Parser<&'a str, Output = text> {
+    fn not_double_quote(c: char) -> bool {
+        c != '"'
+    }
     st.indent();
     println!("parse_text");
     char('"')
-        .with(many(satisfy(|c: char| c != '"')))
+        .with(many(satisfy(not_double_quote)))
         .skip(char('"'))
 }
 
 parser! {
-    fn parse_text['a](st: State)(&'a str) -> text
+    pub fn parse_text['a](st: State)(&'a str) -> text
     where []
     {
         parse_text_(*st)
@@ -272,9 +291,10 @@ pub fn operator<'a>(s: &'static str) -> impl Parser<&'a str, Output = &str> {
 pub fn parse_var_opt<'a, T>(
     p: impl Parser<&'a str, Output = T>,
 ) -> impl Parser<&'a str, Output = (bool, T)> {
-    optional(keyword("var"))
-        .and(p)
-        .map(|(var, x)| (var.is_some(), x))
+    fn first_is_some<U, V>((x, y): (Option<U>, V)) -> (bool, V) {
+        (x.is_some(), y)
+    }
+    optional(keyword("var")).and(p).map(first_is_some)
 }
 
 #[test]
@@ -336,7 +356,7 @@ pub fn parse_obj_sort_<'a>(st: State) -> impl Parser<&'a str, Output = obj_sort>
 }
 
 parser! {
-    fn parse_obj_sort['a](st: State)(&'a str) -> obj_sort
+    pub fn parse_obj_sort['a](st: State)(&'a str) -> obj_sort
     where []
     {
         parse_obj_sort_(*st)
@@ -364,17 +384,23 @@ pub enum func_sort_opt {
     query,
 }
 
+impl func_sort_opt {
+    fn func_sort_opt_shared<U>(q: Option<U>) -> Self {
+        func_sort_opt::shared(q.is_some())
+    }
+}
+
 pub fn parse_func_sort_opt_<'a>(st: State) -> impl Parser<&'a str, Output = func_sort_opt> {
     st.indent();
     println!("parse_func_sort_opt");
     keyword("shared")
         .with(optional(keyword("query")))
-        .map(|q| func_sort_opt::shared(q.is_some()))
+        .map(func_sort_opt::func_sort_opt_shared)
         .or(keyword("query").with(value(func_sort_opt::query)))
 }
 
 parser! {
-    fn parse_func_sort_opt['a](st: State)(&'a str) -> func_sort_opt
+    pub fn parse_func_sort_opt['a](st: State)(&'a str) -> func_sort_opt
     where []
     {
         parse_func_sort_opt_(*st)
@@ -414,18 +440,24 @@ pub enum shared_pat_opt {
     query(Option<pat_plain>),
 }
 
+impl shared_pat_opt {
+    fn shared_pat_opt_shared<U>((q, p): (Option<U>, Option<pat_plain>)) -> Self {
+        shared_pat_opt::shared(q.is_some(), p)
+    }
+}
+
 pub fn parse_shared_pat_opt_<'a>(st: State) -> impl Parser<&'a str, Output = shared_pat_opt> {
     keyword("shared")
         .with(optional(keyword("query")))
         .and(optional(parse_pat_plain(st.incr())))
-        .map(|(q, p)| shared_pat_opt::shared(q.is_some(), p))
+        .map(shared_pat_opt::shared_pat_opt_shared)
         .or(keyword("query")
             .with(optional(parse_pat_plain(st.incr())))
             .map(shared_pat_opt::query))
 }
 
 parser! {
-    fn parse_shared_pat_opt['a](st: State)(&'a str) -> shared_pat_opt
+    pub fn parse_shared_pat_opt['a](st: State)(&'a str) -> shared_pat_opt
     where []
     {
         parse_shared_pat_opt_(*st)
@@ -441,31 +473,29 @@ fn test_shared_pat_opt() {
         )),
         parse_shared_pat_opt(State::new()).parse("shared _ hello"),
     );
-    /*
-        pretty_assertions::assert_eq!(
-            Ok((shared_pat_opt::shared(false, None), "{} hello")),
-            parse_shared_pat_opt(State::new()).parse("shared{} hello"),
-        );
-        pretty_assertions::assert_eq!(
-            Ok((
-                shared_pat_opt::shared(true, Some(pat_plain::underscore)),
-                "hello"
-            )),
-            parse_shared_pat_opt(State::new()).parse("shared query _ hello"),
-        );
-        pretty_assertions::assert_eq!(
-            Ok((shared_pat_opt::shared(true, None), "{} hello")),
-            parse_shared_pat_opt(State::new()).parse("shared query{} hello"),
-        );
-        pretty_assertions::assert_eq!(
-            Ok((shared_pat_opt::query(Some(pat_plain::underscore)), "hello")),
-            parse_shared_pat_opt(State::new()).parse("query _ hello"),
-        );
-        pretty_assertions::assert_eq!(
-            Ok((shared_pat_opt::query(None), "{} hello")),
-            parse_shared_pat_opt(State::new()).parse("query{} hello"),
-        );
-    */
+    pretty_assertions::assert_eq!(
+        Ok((shared_pat_opt::shared(false, None), "{} hello")),
+        parse_shared_pat_opt(State::new()).parse("shared{} hello"),
+    );
+    pretty_assertions::assert_eq!(
+        Ok((
+            shared_pat_opt::shared(true, Some(pat_plain::underscore)),
+            "hello"
+        )),
+        parse_shared_pat_opt(State::new()).parse("shared query _ hello"),
+    );
+    pretty_assertions::assert_eq!(
+        Ok((shared_pat_opt::shared(true, None), "{} hello")),
+        parse_shared_pat_opt(State::new()).parse("shared query{} hello"),
+    );
+    pretty_assertions::assert_eq!(
+        Ok((shared_pat_opt::query(Some(pat_plain::underscore)), "hello")),
+        parse_shared_pat_opt(State::new()).parse("query _ hello"),
+    );
+    pretty_assertions::assert_eq!(
+        Ok((shared_pat_opt::query(None), "{} hello")),
+        parse_shared_pat_opt(State::new()).parse("query{} hello"),
+    );
 }
 
 /*
@@ -478,12 +508,18 @@ pub struct typ_obj {
     pub fields: list<typ_field>,
 }
 
+impl typ_obj {
+    fn new(fields: list<typ_field>) -> typ_obj {
+        typ_obj { fields }
+    }
+}
+
 pub fn parse_typ_obj_<'a>(st: State) -> impl Parser<&'a str, Output = typ_obj> {
-    sep_end_by(parse_typ_field(st.incr()), symbol(";")).map(|fields| typ_obj { fields })
+    sep_end_by(parse_typ_field(st.incr()), symbol(";")).map(typ_obj::new)
 }
 
 parser! {
-    fn parse_typ_obj['a](st: State)(&'a str) -> typ_obj
+    pub fn parse_typ_obj['a](st: State)(&'a str) -> typ_obj
     where []
     {
         parse_typ_obj_(*st)
@@ -513,7 +549,7 @@ pub fn parse_typ_variant_<'a>(st: State) -> impl Parser<&'a str, Output = typ_va
 }
 
 parser! {
-    fn parse_typ_variant['a](st: State)(&'a str) -> typ_variant
+    pub fn parse_typ_variant['a](st: State)(&'a str) -> typ_variant
     where []
     {
         parse_typ_variant_(*st)
@@ -538,20 +574,29 @@ pub enum typ_nullary {
     variant(typ_variant),
 }
 
+impl typ_nullary {
+    fn typ_nullary_dot((ids, args): (list1<id>, Option<typ_args>)) -> Self {
+        typ_nullary::dot(ids, args)
+    }
+
+    fn typ_nullary_bracket((var, typ): (bool, typ)) -> Self {
+        typ_nullary::bracket(var, typ)
+    }
+}
+
 pub fn parse_typ_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nullary> {
     parens(sep_by(parse_typ_item(st.incr()), symbol(",")))
         .map(typ_nullary::list)
-        .or(brackets(parse_var_opt(parse_typ(st.incr())))
-            .map(|(var, typ)| typ_nullary::bracket(var, typ)))
+        .or(brackets(parse_var_opt(parse_typ(st.incr()))).map(typ_nullary::typ_nullary_bracket))
         .or(parse_typ_obj(st.incr()).map(typ_nullary::obj))
         .or(parse_typ_variant(st.incr()).map(typ_nullary::variant))
         .or(sep_by(parse_id(st.incr()), symbol("."))
             .and(optional(parse_typ_args(st.incr())))
-            .map(|(ids, args)| typ_nullary::dot(ids, args)))
+            .map(typ_nullary::typ_nullary_dot))
 }
 
 parser! {
-    fn parse_typ_nullary['a](st: State)(&'a str) -> typ_nullary
+    pub fn parse_typ_nullary['a](st: State)(&'a str) -> typ_nullary
     where []
     {
         parse_typ_nullary_(*st)
@@ -570,16 +615,22 @@ pub enum typ_un {
     question(Box<typ_un>),
 }
 
+impl typ_un {
+    fn typ_un_question(u: typ_un) -> Self {
+        typ_un::question(Box::new(u))
+    }
+}
+
 pub fn parse_typ_un_<'a>(st: State) -> impl Parser<&'a str, Output = typ_un> {
     parse_typ_nullary(st.incr())
         .map(typ_un::nullary)
         .or(symbol("?")
             .with(parse_typ_un(st.incr()))
-            .map(|u| typ_un::question(Box::new(u))))
+            .map(typ_un::typ_un_question))
 }
 
 parser! {
-    fn parse_typ_un['a](st: State)(&'a str) -> typ_un
+    pub fn parse_typ_un['a](st: State)(&'a str) -> typ_un
     where []
     {
         parse_typ_un_(*st)
@@ -600,19 +651,29 @@ pub enum typ_pre {
     obj(obj_sort, typ_obj),
 }
 
+impl typ_pre {
+    fn typ_pre_async_(t: typ_pre) -> Self {
+        typ_pre::async_(Box::new(t))
+    }
+
+    fn typ_pre_obj((o, t): (obj_sort, typ_obj)) -> Self {
+        typ_pre::obj(o, t)
+    }
+}
+
 pub fn parse_typ_pre_<'a>(st: State) -> impl Parser<&'a str, Output = typ_pre> {
     parse_typ_un(st.incr())
         .map(typ_pre::un)
         .or(keyword("async")
             .with(parse_typ_pre(st.incr()))
-            .map(|t| typ_pre::async_(Box::new(t))))
+            .map(typ_pre::typ_pre_async_))
         .or(parse_obj_sort(st.incr())
             .and(parse_typ_obj(st.incr()))
-            .map(|(o, t)| typ_pre::obj(o, t)))
+            .map(typ_pre::typ_pre_obj))
 }
 
 parser! {
-    fn parse_typ_pre['a](st: State)(&'a str) -> typ_pre
+    pub fn parse_typ_pre['a](st: State)(&'a str) -> typ_pre
     where []
     {
         parse_typ_pre_(*st)
@@ -636,6 +697,22 @@ pub enum typ_nobin {
     },
 }
 
+impl typ_nobin {
+    fn typ_nobin_func(
+        (((sort, binds), typ), ret): (
+            ((Option<func_sort_opt>, Option<list<typ_bind>>), typ_un),
+            typ_nobin,
+        ),
+    ) -> Self {
+        typ_nobin::func {
+            sort,
+            binds,
+            typ,
+            ret: Box::new(ret),
+        }
+    }
+}
+
 pub fn parse_typ_nobin_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nobin> {
     parse_typ_pre(st.incr())
         .map(typ_nobin::pre)
@@ -647,16 +724,11 @@ pub fn parse_typ_nobin_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nobi
             .and(parse_typ_un(st.incr()))
             .skip(keyword("->"))
             .and(parse_typ_nobin(st.incr()))
-            .map(|(((sort, binds), typ), ret)| typ_nobin::func {
-                sort,
-                binds,
-                typ,
-                ret: Box::new(ret),
-            }))
+            .map(typ_nobin::typ_nobin_func))
 }
 
 parser! {
-    fn parse_typ_nobin['a](st: State)(&'a str) -> typ_nobin
+    pub fn parse_typ_nobin['a](st: State)(&'a str) -> typ_nobin
     where []
     {
         parse_typ_nobin_(*st)
@@ -678,19 +750,22 @@ pub enum typ {
 }
 
 pub fn parse_typ_<'a>(st: State) -> impl Parser<&'a str, Output = typ> {
+    fn and_or<'a>((l, r_opt): (typ_nobin, Option<(&'a str, typ)>)) -> typ {
+        match r_opt {
+            Some(("and", r)) => typ::or(Box::new(l), Box::new(r)),
+            Some((_, r)) => typ::or(Box::new(l), Box::new(r)),
+            None => typ::nobin(Box::new(l)),
+        }
+    }
     parse_typ_nobin(st.incr())
         .and(optional(
             keyword("and").or(keyword("or")).and(parse_typ(st.incr())),
         ))
-        .map(|(l, r_opt)| match r_opt {
-            Some(("and", r)) => typ::or(Box::new(l), Box::new(r)),
-            Some((_, r)) => typ::or(Box::new(l), Box::new(r)),
-            None => typ::nobin(Box::new(l)),
-        })
+        .map(and_or)
 }
 
 parser! {
-    fn parse_typ['a](st: State)(&'a str) -> typ
+    pub fn parse_typ['a](st: State)(&'a str) -> typ
     where []
     {
         parse_typ_(*st)
@@ -709,16 +784,22 @@ pub enum typ_item {
     typ(typ),
 }
 
+impl typ_item {
+    fn typ_item_colon((id, typ): (id, typ)) -> Self {
+        typ_item::colon(id, typ)
+    }
+}
+
 pub fn parse_typ_item_<'a>(st: State) -> impl Parser<&'a str, Output = typ_item> {
     parse_id(st.incr())
         .skip(symbol(":"))
         .and(parse_typ(st.incr()))
-        .map(|(id, t)| typ_item::colon(id, t))
+        .map(typ_item::typ_item_colon)
         .or(parse_typ(st.incr()).map(typ_item::typ))
 }
 
 parser! {
-    fn parse_typ_item['a](st: State)(&'a str) -> typ_item
+    pub fn parse_typ_item['a](st: State)(&'a str) -> typ_item
     where []
     {
         parse_typ_item_(*st)
@@ -736,12 +817,18 @@ pub struct typ_args {
     pub args: list<typ>,
 }
 
+impl typ_args {
+    fn new(args: list<typ>) -> Self {
+        typ_args { args }
+    }
+}
+
 pub fn parse_typ_args_<'a>(st: State) -> impl Parser<&'a str, Output = typ_args> {
-    angles(sep_by(parse_typ(st.incr()), symbol(","))).map(|args| typ_args { args })
+    angles(sep_by(parse_typ(st.incr()), symbol(","))).map(typ_args::new)
 }
 
 parser! {
-    fn parse_typ_args['a](st: State)(&'a str) -> typ_args
+    pub fn parse_typ_args['a](st: State)(&'a str) -> typ_args
     where []
     {
         parse_typ_args_(*st)
@@ -765,11 +852,28 @@ pub enum typ_field {
     },
 }
 
+impl typ_field {
+    fn typ_field_colon(((v, id), t): ((bool, id), typ)) -> Self {
+        typ_field::colon(v, id, t)
+    }
+
+    fn typ_field_field(
+        (((id, binds), nullary), typ): (((id, Option<list<typ_bind>>), typ_nullary), typ),
+    ) -> Self {
+        typ_field::field {
+            id,
+            binds,
+            nullary,
+            typ,
+        }
+    }
+}
+
 pub fn parse_typ_field_<'a>(st: State) -> impl Parser<&'a str, Output = typ_field> {
     parse_var_opt(parse_id(st.incr()))
         .skip(symbol(":"))
         .and(parse_typ(st.incr()))
-        .map(|((v, id), t)| typ_field::colon(v, id, t))
+        .map(typ_field::typ_field_colon)
         .or(parse_id(st.incr())
             .and(optional(angles(sep_by(
                 parse_typ_bind(st.incr()),
@@ -778,16 +882,11 @@ pub fn parse_typ_field_<'a>(st: State) -> impl Parser<&'a str, Output = typ_fiel
             .and(parse_typ_nullary(st.incr()))
             .skip(symbol(":"))
             .and(parse_typ(st.incr()))
-            .map(|(((id, binds), nullary), typ)| typ_field::field {
-                id,
-                binds,
-                nullary,
-                typ,
-            }))
+            .map(typ_field::typ_field_field))
 }
 
 parser! {
-    fn parse_typ_field['a](st: State)(&'a str) -> typ_field
+    pub fn parse_typ_field['a](st: State)(&'a str) -> typ_field
     where []
     {
         parse_typ_field_(*st)
@@ -806,18 +905,24 @@ pub struct typ_tag {
     pub typ: Option<Box<typ>>,
 }
 
+impl typ_tag {
+    fn new((tag, typ): (id, Option<typ>)) -> Self {
+        typ_tag {
+            tag,
+            typ: typ.map(Box::new),
+        }
+    }
+}
+
 pub fn parse_typ_tag_<'a>(st: State) -> impl Parser<&'a str, Output = typ_tag> {
     symbol("#")
         .with(parse_id(st.incr()))
         .and(optional(symbol(":").with(parse_typ(st.incr()))))
-        .map(|(tag, typ)| typ_tag {
-            tag,
-            typ: typ.map(Box::new),
-        })
+        .map(typ_tag::new)
 }
 
 parser! {
-    fn parse_typ_tag['a](st: State)(&'a str) -> typ_tag
+    pub fn parse_typ_tag['a](st: State)(&'a str) -> typ_tag
     where []
     {
         parse_typ_tag_(*st)
@@ -846,7 +951,7 @@ pub fn parse_typ_bind_<'a>(st: State) -> impl Parser<&'a str, Output = typ_bind>
 }
 
 parser! {
-    fn parse_typ_bind['a](st: State)(&'a str) -> typ_bind
+    pub fn parse_typ_bind['a](st: State)(&'a str) -> typ_bind
     where []
     {
         parse_typ_bind_(*st)
@@ -890,7 +995,7 @@ pub fn parse_lit_<'a>(st: State) -> impl Parser<&'a str, Output = lit> {
 }
 
 parser! {
-    fn parse_lit['a](st: State)(&'a str) -> lit
+    pub fn parse_lit['a](st: State)(&'a str) -> lit
     where []
     {
         parse_lit_(*st)
@@ -956,7 +1061,7 @@ pub fn parse_unop_<'a>(st: State) -> impl Parser<&'a str, Output = unop> {
 }
 
 parser! {
-    fn parse_unop['a](st: State)(&'a str) -> unop
+    pub fn parse_unop['a](st: State)(&'a str) -> unop
     where []
     {
         parse_unop_(*st)
@@ -1033,7 +1138,7 @@ pub fn parse_binop_<'a>(st: State) -> impl Parser<&'a str, Output = binop> {
 }
 
 parser! {
-    fn parse_binop['a](st: State)(&'a str) -> binop
+    pub fn parse_binop['a](st: State)(&'a str) -> binop
     where []
     {
         parse_binop_(*st)
@@ -1074,7 +1179,7 @@ pub fn parse_relop_<'a>(st: State) -> impl Parser<&'a str, Output = relop> {
 }
 
 parser! {
-    fn parse_relop['a](st: State)(&'a str) -> relop
+    pub fn parse_relop['a](st: State)(&'a str) -> relop
     where []
     {
         parse_relop_(*st)
@@ -1106,7 +1211,7 @@ pub fn parse_unassign_<'a>(st: State) -> impl Parser<&'a str, Output = unassign>
 }
 
 parser! {
-    fn parse_unassign['a](st: State)(&'a str) -> unassign
+    pub fn parse_unassign['a](st: State)(&'a str) -> unassign
     where []
     {
         parse_unassign_(*st)
@@ -1183,7 +1288,7 @@ pub fn parse_binassign_<'a>(st: State) -> impl Parser<&'a str, Output = binassig
 }
 
 parser! {
-    fn parse_binassign['a](st: State)(&'a str) -> binassign
+    pub fn parse_binassign['a](st: State)(&'a str) -> binassign
     where []
     {
         parse_binassign_(*st)
@@ -1205,14 +1310,20 @@ pub struct exp_obj {
     pub fields: list<exp_field>,
 }
 
+impl exp_obj {
+    fn new(fields: list<exp_field>) -> Self {
+        exp_obj { fields }
+    }
+}
+
 pub fn parse_exp_obj_<'a>(st: State) -> impl Parser<&'a str, Output = exp_obj> {
     st.indent();
     println!("parse_exp_obj");
-    braces(sep_end_by(parse_exp_field(st.incr()), symbol(";")).map(|fields| exp_obj { fields }))
+    braces(sep_end_by(parse_exp_field(st.incr()), symbol(";")).map(exp_obj::new))
 }
 
 parser! {
-    fn parse_exp_obj['a](st: State)(&'a str) -> exp_obj
+    pub fn parse_exp_obj['a](st: State)(&'a str) -> exp_obj
     where []
     {
         parse_exp_obj_(*st)
@@ -1240,7 +1351,7 @@ pub fn parse_exp_plain_<'a>(st: State) -> impl Parser<&'a str, Output = exp_plai
 }
 
 parser! {
-    fn parse_exp_plain['a](st: State)(&'a str) -> exp_plain
+    pub fn parse_exp_plain['a](st: State)(&'a str) -> exp_plain
     where []
     {
         parse_exp_plain_(*st)
@@ -1271,7 +1382,7 @@ pub fn parse_exp_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nu
 }
 
 parser! {
-    fn parse_exp_nullary['a](st: State)(&'a str) -> exp_nullary
+    pub fn parse_exp_nullary['a](st: State)(&'a str) -> exp_nullary
     where []
     {
         parse_exp_nullary_(*st)
@@ -1300,6 +1411,24 @@ pub enum exp_post {
     bang(Box<exp_post>),
 }
 
+impl exp_post {
+    fn exp_post_nonvars((v, e): (bool, list<exp_nonvar>)) -> Self {
+        exp_post::nonvars(v, e)
+    }
+
+    #[allow(non_snake_case)]
+    fn match_on_exp_post__post((pre, post): (exp_post, Option<exp_post__post>)) -> Self {
+        match post {
+            None => pre,
+            Some(exp_post__post::bracket(exp)) => exp_post::bracket(Box::new(pre), exp),
+            Some(exp_post__post::dot(nat)) => exp_post::dot(Box::new(pre), nat),
+            Some(exp_post__post::id(id)) => exp_post::id(Box::new(pre), id),
+            Some(exp_post__post::typ(typs, nullary)) => exp_post::typ(Box::new(pre), typs, nullary),
+            Some(exp_post__post::bang) => exp_post::bang(Box::new(pre)),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum exp_post__post {
     bracket(exp),
@@ -1309,12 +1438,19 @@ pub enum exp_post__post {
     bang,
 }
 
+impl exp_post__post {
+    #[allow(non_snake_case)]
+    fn exp_post__post_typ((typs, nullary): (Option<list<typ>>, exp_nullary)) -> Self {
+        exp_post__post::typ(typs, nullary)
+    }
+}
+
 pub fn parse_exp_post_<'a>(st: State) -> impl Parser<&'a str, Output = exp_post> {
     st.indent();
     println!("parse_exp_post");
     brackets(
         parse_var_opt(sep_by(parse_exp_nonvar(st.incr()), symbol(",")))
-            .map(|(v, e)| exp_post::nonvars(v, e)),
+            .map(exp_post::exp_post_nonvars),
     )
     .or(parse_exp_nullary(st.incr()).map(exp_post::nullary))
     .and(optional(
@@ -1328,21 +1464,14 @@ pub fn parse_exp_post_<'a>(st: State) -> impl Parser<&'a str, Output = exp_post>
                 .map(exp_post__post::id))
             .or(optional(angles(sep_by(parse_typ(st.incr()), symbol(","))))
                 .and(parse_exp_nullary(st.incr()))
-                .map(|(typ, nullary)| exp_post__post::typ(typ, nullary)))
+                .map(exp_post__post::exp_post__post_typ))
             .or(symbol("!").with(value(exp_post__post::bang))),
     ))
-    .map(|(pre, post)| match post {
-        None => pre,
-        Some(exp_post__post::bracket(exp)) => exp_post::bracket(Box::new(pre), exp),
-        Some(exp_post__post::dot(nat)) => exp_post::dot(Box::new(pre), nat),
-        Some(exp_post__post::id(id)) => exp_post::id(Box::new(pre), id),
-        Some(exp_post__post::typ(typs, nullary)) => exp_post::typ(Box::new(pre), typs, nullary),
-        Some(exp_post__post::bang) => exp_post::bang(Box::new(pre)),
-    })
+    .map(exp_post::match_on_exp_post__post)
 }
 
 parser! {
-    fn parse_exp_post['a](st: State)(&'a str) -> exp_post
+    pub fn parse_exp_post['a](st: State)(&'a str) -> exp_post
     where []
     {
         parse_exp_post_(*st)
@@ -1374,36 +1503,62 @@ pub enum exp_un {
     debug_show(Box<exp_un>),
 }
 
+impl exp_un {
+    fn exp_un_hash((id, nullary): (id, Option<exp_nullary>)) -> Self {
+        exp_un::hash(id, nullary)
+    }
+
+    fn exp_un_question(un: exp_un) -> Self {
+        exp_un::question(Box::new(un))
+    }
+
+    fn exp_un_unop((unop, un): (unop, exp_un)) -> Self {
+        exp_un::unop(unop, Box::new(un))
+    }
+
+    fn exp_un_unassign((unassign, un): (unassign, exp_un)) -> Self {
+        exp_un::unassign(unassign, Box::new(un))
+    }
+
+    fn exp_un_not(un: exp_un) -> Self {
+        exp_un::not(Box::new(un))
+    }
+
+    fn exp_un_debug_show(un: exp_un) -> Self {
+        exp_un::debug_show(Box::new(un))
+    }
+}
+
 pub fn parse_exp_un_<'a>(st: State) -> impl Parser<&'a str, Output = exp_un> {
     st.indent();
     println!("parse_exp_un");
     symbol("#")
         .with(parse_id(st.incr()))
         .and(optional(parse_exp_nullary(st.incr())))
-        .map(|(id, nullary)| exp_un::hash(id, nullary))
+        .map(exp_un::exp_un_hash)
         .or(symbol("?")
             .with(parse_exp_un(st.incr()))
-            .map(|un| exp_un::question(Box::new(un))))
+            .map(exp_un::exp_un_question))
         .or(keyword("actor")
             .with(parse_exp_plain(st.incr()))
             .map(exp_un::actor))
         .or(keyword("not")
             .with(parse_exp_un(st.incr()))
-            .map(|un| exp_un::not(Box::new(un))))
+            .map(exp_un::exp_un_not))
         .or(keyword("debug_show")
             .with(parse_exp_un(st.incr()))
-            .map(|un| exp_un::debug_show(Box::new(un))))
+            .map(exp_un::exp_un_debug_show))
         .or(parse_unop(st.incr())
             .and(parse_exp_un(st.incr()))
-            .map(|(unop, un)| exp_un::unop(unop, Box::new(un))))
+            .map(exp_un::exp_un_unop))
         .or(parse_unassign(st.incr())
             .and(parse_exp_un(st.incr()))
-            .map(|(unop, un)| exp_un::unassign(unop, Box::new(un))))
+            .map(exp_un::exp_un_unassign))
         .or(parse_exp_post(st.incr()).map(exp_un::post))
 }
 
 parser! {
-    fn parse_exp_un['a](st: State)(&'a str) -> exp_un
+    pub fn parse_exp_un['a](st: State)(&'a str) -> exp_un
     where []
     {
         parse_exp_un_(*st)
@@ -1430,6 +1585,21 @@ pub enum exp_bin {
     colon(Box<exp_bin>, typ_nobin),
 }
 
+impl exp_bin {
+    #[allow(non_snake_case)]
+    fn match_on_exp_bin__post((un, post): (exp_un, Option<exp_bin__post>)) -> Self {
+        let pre = Box::new(exp_bin::un(un));
+        match post {
+            None => *pre,
+            Some(exp_bin__post::binop(op, x)) => exp_bin::binop(pre, op, x),
+            Some(exp_bin__post::relop(op, x)) => exp_bin::relop(pre, op, x),
+            Some(exp_bin__post::and(x)) => exp_bin::and(pre, x),
+            Some(exp_bin__post::or(x)) => exp_bin::or(pre, x),
+            Some(exp_bin__post::colon(x)) => exp_bin::colon(pre, x),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum exp_bin__post {
     binop(binop, Box<exp_bin>),
@@ -1439,6 +1609,28 @@ pub enum exp_bin__post {
     colon(typ_nobin),
 }
 
+impl exp_bin__post {
+    #[allow(non_snake_case)]
+    fn exp_bin__post_binop((binop, bin): (binop, exp_bin)) -> Self {
+        exp_bin__post::binop(binop, Box::new(bin))
+    }
+
+    #[allow(non_snake_case)]
+    fn exp_bin__post_relop((relop, bin): (relop, exp_bin)) -> Self {
+        exp_bin__post::relop(relop, Box::new(bin))
+    }
+
+    #[allow(non_snake_case)]
+    fn exp_bin__post_and(r: exp_bin) -> Self {
+        exp_bin__post::and(Box::new(r))
+    }
+
+    #[allow(non_snake_case)]
+    fn exp_bin__post_or(r: exp_bin) -> Self {
+        exp_bin__post::or(Box::new(r))
+    }
+}
+
 pub fn parse_exp_bin_<'a>(st: State) -> impl Parser<&'a str, Output = exp_bin> {
     st.indent();
     println!("parse_exp_bin");
@@ -1446,35 +1638,25 @@ pub fn parse_exp_bin_<'a>(st: State) -> impl Parser<&'a str, Output = exp_bin> {
         .and(optional(
             parse_binop(st.incr())
                 .and(parse_exp_bin(st.incr()))
-                .map(|(binop, bin)| exp_bin__post::binop(binop, Box::new(bin)))
+                .map(exp_bin__post::exp_bin__post_binop)
                 .or(parse_relop(st.incr())
                     .and(parse_exp_bin(st.incr()))
-                    .map(|(relop, bin)| exp_bin__post::relop(relop, Box::new(bin))))
+                    .map(exp_bin__post::exp_bin__post_relop))
                 .or(keyword("and")
                     .with(parse_exp_bin(st.incr()))
-                    .map(|r| exp_bin__post::and(Box::new(r))))
+                    .map(exp_bin__post::exp_bin__post_and))
                 .or(keyword("or")
                     .with(parse_exp_bin(st.incr()))
-                    .map(|r| exp_bin__post::or(Box::new(r))))
+                    .map(exp_bin__post::exp_bin__post_or))
                 .or(symbol(":")
                     .with(parse_typ_nobin(st.incr()))
                     .map(exp_bin__post::colon)),
         ))
-        .map(|(un, post)| {
-            let pre = Box::new(exp_bin::un(un));
-            match post {
-                None => *pre,
-                Some(exp_bin__post::binop(op, x)) => exp_bin::binop(pre, op, x),
-                Some(exp_bin__post::relop(op, x)) => exp_bin::relop(pre, op, x),
-                Some(exp_bin__post::and(x)) => exp_bin::and(pre, x),
-                Some(exp_bin__post::or(x)) => exp_bin::or(pre, x),
-                Some(exp_bin__post::colon(x)) => exp_bin::colon(pre, x),
-            }
-        })
+        .map(exp_bin::match_on_exp_bin__post)
 }
 
 parser! {
-    fn parse_exp_bin['a](st: State)(&'a str) -> exp_bin
+    pub fn parse_exp_bin['a](st: State)(&'a str) -> exp_bin
     where []
     {
         parse_exp_bin_(*st)
@@ -1535,6 +1717,58 @@ pub enum exp_nondec {
     do_question(block),
 }
 
+impl exp_nondec {
+    fn exp_nondec_bin_assign_binassign(
+        (bin, v): (exp_bin, Option<Either<exp, (binassign, exp)>>),
+    ) -> Self {
+        match v {
+            None => exp_nondec::bin(bin),
+            Some(Either::Left(exp)) => exp_nondec::assign(bin, exp),
+            Some(Either::Right((assn, exp))) => exp_nondec::binassign(bin, assn, exp),
+        }
+    }
+
+    fn exp_nondec_label(((id, ty), body): ((id, Option<typ>), exp_nest)) -> Self {
+        exp_nondec::label(id, ty, body)
+    }
+
+    fn exp_nondec_break_((id, nullary): (id, Option<exp_nullary>)) -> Self {
+        exp_nondec::break_(id, nullary)
+    }
+
+    fn exp_nondec_if_else(
+        ((cond, then), melse_): ((exp_nullary, exp_nest), Option<exp_nest>),
+    ) -> Self {
+        match melse_ {
+            None => exp_nondec::if_(cond, then),
+            Some(else_) => exp_nondec::if_else(cond, then, else_),
+        }
+    }
+
+    fn exp_nondec_try_((nest, catch): (exp_nest, catch)) -> Self {
+        exp_nondec::try_(nest, catch)
+    }
+
+    fn exp_nondec_switch((scrutinee, cases): (exp_nullary, list<case>)) -> Self {
+        exp_nondec::switch(scrutinee, cases)
+    }
+
+    fn exp_nondec_while_((cond, body): (exp_nullary, exp_nest)) -> Self {
+        exp_nondec::while_(cond, body)
+    }
+
+    fn exp_nondec_loop_while((cond, mbody): (exp_nest, Option<exp_nest>)) -> Self {
+        match mbody {
+            None => exp_nondec::loop_(cond),
+            Some(body) => exp_nondec::loop_while(cond, body),
+        }
+    }
+
+    fn exp_nondec_for_(((pat, exp), body): ((pat, exp), exp_nest)) -> Self {
+        exp_nondec::for_(pat, exp, body)
+    }
+}
+
 pub fn parse_exp_nondec_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nondec> {
     st.indent();
     println!("parse_exp_nondec");
@@ -1547,11 +1781,7 @@ pub fn parse_exp_nondec_<'a>(st: State) -> impl Parser<&'a str, Output = exp_non
                     .and(parse_exp(st.incr()))
                     .map(Either::Right)),
         ))
-        .map(|(bin, v)| match v {
-            None => exp_nondec::bin(bin),
-            Some(Either::Left(exp)) => exp_nondec::assign(bin, exp),
-            Some(Either::Right((assn, exp))) => exp_nondec::binassign(bin, assn, exp),
-        })
+        .map(exp_nondec::exp_nondec_bin_assign_binassign)
         .or(keyword("return").with(optional(parse_exp(st.incr())).map(exp_nondec::return_)))
         .or(keyword("async").with(parse_exp_nest(st.incr()).map(exp_nondec::async_)))
         .or(keyword("await").with(parse_exp_nest(st.incr()).map(exp_nondec::await_)))
@@ -1560,41 +1790,35 @@ pub fn parse_exp_nondec_<'a>(st: State) -> impl Parser<&'a str, Output = exp_non
             .with(parse_id(st.incr()))
             .and(optional(symbol(":").with(parse_typ(st.incr()))))
             .and(parse_exp_nest(st.incr()))
-            .map(|((id, ty), body)| exp_nondec::label(id, ty, body)))
+            .map(exp_nondec::exp_nondec_label))
         .or(keyword("break")
             .with(parse_id(st.incr()))
             .and(optional(parse_exp_nullary(st.incr())))
-            .map(|(id, nullary)| exp_nondec::break_(id, nullary)))
+            .map(exp_nondec::exp_nondec_break_))
         .or(keyword("continue").with(parse_id(st.incr()).map(exp_nondec::continue_)))
         .or(keyword("debug").with(parse_exp_nest(st.incr()).map(exp_nondec::debug)))
         .or(keyword("if")
             .with(parse_exp_nullary(st.incr()))
             .and(parse_exp_nest(st.incr()))
             .and(optional(keyword("else").with(parse_exp_nest(st.incr()))))
-            .map(|((cond, then), melse_)| match melse_ {
-                None => exp_nondec::if_(cond, then),
-                Some(else_) => exp_nondec::if_else(cond, then, else_),
-            }))
+            .map(exp_nondec::exp_nondec_if_else))
         .or(keyword("try")
             .with(parse_exp_nest(st.incr()))
             .and(parse_catch(st.incr()))
-            .map(|(nest, catch)| exp_nondec::try_(nest, catch)))
+            .map(exp_nondec::exp_nondec_try_))
         .or(keyword("throw").with(parse_exp_nest(st.incr()).map(exp_nondec::throw)))
         .or(keyword("switch")
             .with(parse_exp_nullary(st.incr()))
             .and(braces(sep_end_by(parse_case(st.incr()), symbol(";"))))
-            .map(|(scrutinee, cases)| exp_nondec::switch(scrutinee, cases)))
+            .map(exp_nondec::exp_nondec_switch))
         .or(keyword("while")
             .with(parse_exp_nullary(st.incr()))
             .and(parse_exp_nest(st.incr()))
-            .map(|(cond, body)| exp_nondec::while_(cond, body)))
+            .map(exp_nondec::exp_nondec_while_))
         .or(keyword("loop")
             .with(parse_exp_nest(st.incr()))
             .and(optional(keyword("while").with(parse_exp_nest(st.incr()))))
-            .map(|(cond, mbody)| match mbody {
-                None => exp_nondec::loop_(cond),
-                Some(body) => exp_nondec::loop_while(cond, body),
-            }))
+            .map(exp_nondec::exp_nondec_loop_while))
         .or(keyword("for")
             .with(parens(
                 parse_pat(st.incr())
@@ -1602,7 +1826,7 @@ pub fn parse_exp_nondec_<'a>(st: State) -> impl Parser<&'a str, Output = exp_non
                     .and(parse_exp(st.incr())),
             ))
             .and(parse_exp_nest(st.incr()))
-            .map(|((pat, exp), body)| exp_nondec::for_(pat, exp, body)))
+            .map(exp_nondec::exp_nondec_for_))
         .or(keyword("ignore").with(parse_exp_nest(st.incr()).map(exp_nondec::ignore)))
         .or(keyword("do").with(
             symbol("?")
@@ -1612,7 +1836,7 @@ pub fn parse_exp_nondec_<'a>(st: State) -> impl Parser<&'a str, Output = exp_non
 }
 
 parser! {
-    fn parse_exp_nondec['a](st: State)(&'a str) -> exp_nondec
+    pub fn parse_exp_nondec['a](st: State)(&'a str) -> exp_nondec
     where []
     {
         parse_exp_nondec_(*st)
@@ -1640,7 +1864,7 @@ pub fn parse_exp_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = exp_non
 }
 
 parser! {
-    fn parse_exp_nonvar['a](st: State)(&'a str) -> exp_nonvar
+    pub fn parse_exp_nonvar['a](st: State)(&'a str) -> exp_nonvar
     where []
     {
         parse_exp_nonvar_(*st)
@@ -1659,16 +1883,26 @@ pub enum exp {
     dec_var(Box<dec_var>),
 }
 
+impl exp {
+    fn exp_exp_nonvar(e: exp_nonvar) -> Self {
+        exp::exp_nonvar(Box::new(e))
+    }
+
+    fn exp_dec_var(d: dec_var) -> Self {
+        exp::dec_var(Box::new(d))
+    }
+}
+
 pub fn parse_exp_<'a>(st: State) -> impl Parser<&'a str, Output = exp> {
     st.indent();
     println!("parse_exp");
     parse_exp_nonvar(st.incr())
-        .map(|e| exp::exp_nonvar(Box::new(e)))
-        .or(parse_dec_var(st.incr()).map(|d| exp::dec_var(Box::new(d))))
+        .map(exp::exp_exp_nonvar)
+        .or(parse_dec_var(st.incr()).map(exp::exp_dec_var))
 }
 
 parser! {
-    fn parse_exp['a](st: State)(&'a str) -> exp
+    pub fn parse_exp['a](st: State)(&'a str) -> exp
     where []
     {
         parse_exp_(*st)
@@ -1707,7 +1941,7 @@ pub fn parse_exp_nest_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nest>
 }
 
 parser! {
-    fn parse_exp_nest['a](st: State)(&'a str) -> exp_nest
+    pub fn parse_exp_nest['a](st: State)(&'a str) -> exp_nest
     where []
     {
         parse_exp_nest_(*st)
@@ -1729,12 +1963,18 @@ pub struct block {
     pub decs: list<dec>,
 }
 
+impl block {
+    fn new(decs: list<dec>) -> Self {
+        block { decs }
+    }
+}
+
 pub fn parse_block_<'a>(st: State) -> impl Parser<&'a str, Output = block> {
-    braces(sep_end_by(parse_dec(st.incr()), symbol(";"))).map(|decs| block { decs })
+    braces(sep_end_by(parse_dec(st.incr()), symbol(";"))).map(block::new)
 }
 
 parser! {
-    fn parse_block['a](st: State)(&'a str) -> block
+    pub fn parse_block['a](st: State)(&'a str) -> block
     where []
     {
         parse_block_(*st)
@@ -1753,15 +1993,21 @@ pub struct case {
     pub nest: exp_nest,
 }
 
+impl case {
+    fn new((nullary, nest): (pat_nullary, exp_nest)) -> Self {
+        case { nullary, nest }
+    }
+}
+
 pub fn parse_case_<'a>(st: State) -> impl Parser<&'a str, Output = case> {
     keyword("case")
         .with(parse_pat_nullary(st.incr()))
         .and(parse_exp_nest(st.incr()))
-        .map(|(nullary, nest)| case { nullary, nest })
+        .map(case::new)
 }
 
 parser! {
-    fn parse_case['a](st: State)(&'a str) -> case
+    pub fn parse_case['a](st: State)(&'a str) -> case
     where []
     {
         parse_case_(*st)
@@ -1780,15 +2026,21 @@ pub struct catch {
     pub nest: exp_nest,
 }
 
+impl catch {
+    fn new((nullary, nest): (pat_nullary, exp_nest)) -> Self {
+        catch { nullary, nest }
+    }
+}
+
 pub fn parse_catch_<'a>(st: State) -> impl Parser<&'a str, Output = catch> {
     keyword("catch")
         .with(parse_pat_nullary(st.incr()))
         .and(parse_exp_nest(st.incr()))
-        .map(|(nullary, nest)| catch { nullary, nest })
+        .map(catch::new)
 }
 
 parser! {
-    fn parse_catch['a](st: State)(&'a str) -> catch
+    pub fn parse_catch['a](st: State)(&'a str) -> catch
     where []
     {
         parse_catch_(*st)
@@ -1809,15 +2061,21 @@ pub struct exp_field {
     pub exp: Option<exp>,
 }
 
+impl exp_field {
+    fn new((((var, id), typ), exp): (((bool, id), Option<typ>), Option<exp>)) -> Self {
+        exp_field { var, id, typ, exp }
+    }
+}
+
 pub fn parse_exp_field_<'a>(st: State) -> impl Parser<&'a str, Output = exp_field> {
     parse_var_opt(parse_id(st.incr()))
         .and(optional(symbol(":").with(parse_typ(st.incr()))))
         .and(optional(symbol("=").with(parse_exp(st.incr()))))
-        .map(|(((var, id), typ), exp)| exp_field { var, id, typ, exp })
+        .map(exp_field::new)
 }
 
 parser! {
-    fn parse_exp_field['a](st: State)(&'a str) -> exp_field
+    pub fn parse_exp_field['a](st: State)(&'a str) -> exp_field
     where []
     {
         parse_exp_field_(*st)
@@ -1848,7 +2106,7 @@ pub fn parse_dec_field_<'a>(st: State) -> impl Parser<&'a str, Output = dec_fiel
 }
 
 parser! {
-    fn parse_dec_field['a](st: State)(&'a str) -> dec_field
+    pub fn parse_dec_field['a](st: State)(&'a str) -> dec_field
     where []
     {
         parse_dec_field_(*st)
@@ -1881,7 +2139,7 @@ pub fn parse_vis_<'a>(st: State) -> impl Parser<&'a str, Output = vis> {
 }
 
 parser! {
-    fn parse_vis['a](st: State)(&'a str) -> vis
+    pub fn parse_vis['a](st: State)(&'a str) -> vis
     where []
     {
         parse_vis_(*st)
@@ -1911,7 +2169,7 @@ pub fn parse_stab_<'a>(st: State) -> impl Parser<&'a str, Output = stab> {
 }
 
 parser! {
-    fn parse_stab['a](st: State)(&'a str) -> stab
+    pub fn parse_stab['a](st: State)(&'a str) -> stab
     where []
     {
         parse_stab_(*st)
@@ -1947,7 +2205,7 @@ pub fn parse_pat_plain_<'a>(st: State) -> impl Parser<&'a str, Output = pat_plai
 }
 
 parser! {
-    fn parse_pat_plain['a](st: State)(&'a str) -> pat_plain
+    pub fn parse_pat_plain['a](st: State)(&'a str) -> pat_plain
     where []
     {
         parse_pat_plain_(*st)
@@ -1973,7 +2231,7 @@ pub fn parse_pat_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = pat_nu
 }
 
 parser! {
-    fn parse_pat_nullary['a](st: State)(&'a str) -> pat_nullary
+    pub fn parse_pat_nullary['a](st: State)(&'a str) -> pat_nullary
     where []
     {
         parse_pat_nullary_(*st)
@@ -1997,22 +2255,36 @@ pub enum pat_un {
     unop_lit(unop, lit),
 }
 
+impl pat_un {
+    fn pat_un_hash((id, n): (id, Option<pat_nullary>)) -> Self {
+        pat_un::hash(id, n)
+    }
+
+    fn pat_un_question(u: pat_un) -> Self {
+        pat_un::question(Box::new(u))
+    }
+
+    fn pat_un_unop_lit((u, l): (unop, lit)) -> Self {
+        pat_un::unop_lit(u, l)
+    }
+}
+
 pub fn parse_pat_un_<'a>(st: State) -> impl Parser<&'a str, Output = pat_un> {
     symbol("#")
         .with(parse_id(st.incr()))
         .and(optional(parse_pat_nullary(st.incr())))
-        .map(|(id, n)| pat_un::hash(id, n))
+        .map(pat_un::pat_un_hash)
         .or(symbol("?")
             .with(parse_pat_un(st.incr()))
-            .map(|u| pat_un::question(Box::new(u))))
+            .map(pat_un::pat_un_question))
         .or(parse_unop(st.incr())
             .and(parse_lit(st.incr()))
-            .map(|(u, l)| pat_un::unop_lit(u, l)))
+            .map(pat_un::pat_un_unop_lit))
         .or(parse_pat_nullary(st.incr()).map(pat_un::nullary))
 }
 
 parser! {
-    fn parse_pat_un['a](st: State)(&'a str) -> pat_un
+    pub fn parse_pat_un['a](st: State)(&'a str) -> pat_un
     where []
     {
         parse_pat_un_(*st)
@@ -2033,10 +2305,29 @@ pub enum pat_bin {
     colon(Box<pat_bin>, typ),
 }
 
+impl pat_bin {
+    #[allow(non_snake_case)]
+    fn match_on_pat_bin__post((un, post): (pat_un, Option<pat_bin__post>)) -> Self {
+        let pre = Box::new(pat_bin::un(un));
+        match post {
+            None => *pre,
+            Some(pat_bin__post::or(x)) => pat_bin::or(pre, x),
+            Some(pat_bin__post::colon(x)) => pat_bin::colon(pre, x),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum pat_bin__post {
     or(Box<pat_bin>),
     colon(typ),
+}
+
+impl pat_bin__post {
+    #[allow(non_snake_case)]
+    fn pat_bin__post_or(b: pat_bin) -> Self {
+        pat_bin__post::or(Box::new(b))
+    }
 }
 
 pub fn parse_pat_bin_<'a>(st: State) -> impl Parser<&'a str, Output = pat_bin> {
@@ -2044,23 +2335,16 @@ pub fn parse_pat_bin_<'a>(st: State) -> impl Parser<&'a str, Output = pat_bin> {
         .and(optional(
             keyword("or")
                 .with(parse_pat_bin(st.incr()))
-                .map(|b| pat_bin__post::or(Box::new(b)))
+                .map(pat_bin__post::pat_bin__post_or)
                 .or(symbol(":")
                     .with(parse_typ(st.incr()))
                     .map(pat_bin__post::colon)),
         ))
-        .map(|(un, post)| {
-            let pre = Box::new(pat_bin::un(un));
-            match post {
-                None => *pre,
-                Some(pat_bin__post::or(x)) => pat_bin::or(pre, x),
-                Some(pat_bin__post::colon(x)) => pat_bin::colon(pre, x),
-            }
-        })
+        .map(pat_bin::match_on_pat_bin__post)
 }
 
 parser! {
-    fn parse_pat_bin['a](st: State)(&'a str) -> pat_bin
+    pub fn parse_pat_bin['a](st: State)(&'a str) -> pat_bin
     where []
     {
         parse_pat_bin_(*st)
@@ -2086,7 +2370,7 @@ pub fn parse_pat_<'a>(st: State) -> impl Parser<&'a str, Output = pat> {
 }
 
 parser! {
-    fn parse_pat['a](st: State)(&'a str) -> pat
+    pub fn parse_pat['a](st: State)(&'a str) -> pat
     where []
     {
         parse_pat_(*st)
@@ -2117,7 +2401,7 @@ pub fn parse_pat_field_<'a>(st: State) -> impl Parser<&'a str, Output = pat_fiel
 }
 
 parser! {
-    fn parse_pat_field['a](st: State)(&'a str) -> pat_field
+    pub fn parse_pat_field['a](st: State)(&'a str) -> pat_field
     where []
     {
         parse_pat_field_(*st)
@@ -2152,7 +2436,7 @@ pub fn parse_dec_var_<'a>(st: State) -> impl Parser<&'a str, Output = dec_var> {
 }
 
 parser! {
-    fn parse_dec_var['a](st: State)(&'a str) -> dec_var
+    pub fn parse_dec_var['a](st: State)(&'a str) -> dec_var
     where []
     {
         parse_dec_var_(*st)
@@ -2192,11 +2476,75 @@ pub enum dec_nonvar {
     },
 }
 
+impl dec_nonvar {
+    fn dec_nonvar_let_dec((pat, exp): (pat, exp)) -> Self {
+        dec_nonvar::let_dec(pat, Box::new(exp))
+    }
+
+    fn dec_nonvar_type_dec(((id, binds), typ): ((id, Option<list<typ_bind>>), typ)) -> Self {
+        dec_nonvar::type_dec(id, binds, typ)
+    }
+
+    fn dec_nonvar_obj_dec<U>(
+        (((sort, id), eq), body): (((obj_sort, Option<id>), Option<U>), obj_body),
+    ) -> Self {
+        dec_nonvar::obj_dec(sort, id, eq.is_some(), body)
+    }
+
+    fn dec_nonvar_func(
+        (((((shared_pat, id), binds), plain), typ), body): (
+            (
+                (
+                    ((Option<shared_pat_opt>, Option<id>), Option<list<typ_bind>>),
+                    pat_plain,
+                ),
+                Option<typ>,
+            ),
+            func_body,
+        ),
+    ) -> Self {
+        dec_nonvar::func {
+            shared_pat,
+            id,
+            binds,
+            plain,
+            typ,
+            body,
+        }
+    }
+
+    fn dec_nonvar_class(
+        ((((((shared_pat, sort), id), binds), plain), typ), body): (
+            (
+                (
+                    (
+                        ((Option<shared_pat_opt>, Option<obj_sort>), Option<id>),
+                        Option<list<typ_bind>>,
+                    ),
+                    pat_plain,
+                ),
+                Option<typ>,
+            ),
+            class_body,
+        ),
+    ) -> Self {
+        dec_nonvar::class {
+            shared_pat,
+            sort,
+            id,
+            binds,
+            plain,
+            typ,
+            body,
+        }
+    }
+}
+
 pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_nonvar> {
     keyword("let")
         .with(parse_pat(st.incr()))
         .and(symbol("=").with(parse_exp(st.incr())))
-        .map(|(pat, exp)| dec_nonvar::let_dec(pat, Box::new(exp)))
+        .map(dec_nonvar::dec_nonvar_let_dec)
         .or(keyword("type")
             .with(parse_id(st.incr()))
             .and(optional(angles(sep_by(
@@ -2205,12 +2553,12 @@ pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_non
             ))))
             .skip(symbol("="))
             .and(parse_typ(st.incr()))
-            .map(|((id, binds), typ)| dec_nonvar::type_dec(id, binds, typ)))
+            .map(dec_nonvar::dec_nonvar_type_dec))
         .or(parse_obj_sort(st.incr())
             .and(optional(parse_id(st.incr())))
             .and(optional(symbol("=")))
             .and(parse_obj_body(st.incr()))
-            .map(|(((sort, id), eq), body)| dec_nonvar::obj_dec(sort, id, eq.is_some(), body)))
+            .map(dec_nonvar::dec_nonvar_obj_dec))
         .or(attempt(
             optional(parse_shared_pat_opt(st.incr()))
                 .skip(keyword("func"))
@@ -2222,16 +2570,7 @@ pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_non
                 .and(parse_pat_plain(st.incr()))
                 .and(optional(symbol(":").with(parse_typ(st.incr()))))
                 .and(parse_func_body(st.incr()))
-                .map(
-                    |(((((shared_pat, id), binds), plain), typ), body)| dec_nonvar::func {
-                        shared_pat,
-                        id,
-                        binds,
-                        plain,
-                        typ,
-                        body,
-                    },
-                ),
+                .map(dec_nonvar::dec_nonvar_func),
         ))
         .or(optional(parse_shared_pat_opt(st.incr()))
             .and(optional(parse_obj_sort(st.incr())))
@@ -2244,21 +2583,11 @@ pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_non
             .and(parse_pat_plain(st.incr()))
             .and(optional(symbol(":").with(parse_typ(st.incr()))))
             .and(parse_class_body(st.incr()))
-            .map(
-                |((((((shared_pat, sort), id), binds), plain), typ), body)| dec_nonvar::class {
-                    shared_pat,
-                    sort,
-                    id,
-                    binds,
-                    plain,
-                    typ,
-                    body,
-                },
-            ))
+            .map(dec_nonvar::dec_nonvar_class))
 }
 
 parser! {
-    fn parse_dec_nonvar['a](st: State)(&'a str) -> dec_nonvar
+    pub fn parse_dec_nonvar['a](st: State)(&'a str) -> dec_nonvar
     where []
     {
         parse_dec_nonvar_(*st)
@@ -2287,7 +2616,7 @@ pub fn parse_dec_<'a>(st: State) -> impl Parser<&'a str, Output = dec> {
 }
 
 parser! {
-    fn parse_dec['a](st: State)(&'a str) -> dec
+    pub fn parse_dec['a](st: State)(&'a str) -> dec
         where []
     {
         parse_dec_(*st)
@@ -2317,7 +2646,7 @@ pub fn parse_func_body_<'a>(st: State) -> impl Parser<&'a str, Output = func_bod
 }
 
 parser! {
-    fn parse_func_body['a](st: State)(&'a str) -> func_body
+    pub fn parse_func_body['a](st: State)(&'a str) -> func_body
     where []
     {
         parse_func_body_(*st)
@@ -2344,7 +2673,7 @@ pub fn parse_obj_body_<'a>(st: State) -> impl Parser<&'a str, Output = obj_body>
 }
 
 parser! {
-    fn parse_obj_body['a](st: State)(&'a str) -> obj_body
+    pub fn parse_obj_body['a](st: State)(&'a str) -> obj_body
     where []
     {
         parse_obj_body_(*st)
@@ -2364,18 +2693,24 @@ pub struct class_body {
     pub body: obj_body,
 }
 
-pub fn parse_class_body_<'a>(st: State) -> impl Parser<&'a str, Output = class_body> {
-    optional(symbol("=").with(optional(parse_id(st.incr()))))
-        .and(parse_obj_body(st.incr()))
-        .map(|(id, body)| class_body {
+impl class_body {
+    fn new((id, body): (Option<Option<id>>, obj_body)) -> Self {
+        class_body {
             equal: id.is_some(),
             id: id.flatten(),
             body,
-        })
+        }
+    }
+}
+
+pub fn parse_class_body_<'a>(st: State) -> impl Parser<&'a str, Output = class_body> {
+    optional(symbol("=").with(optional(parse_id(st.incr()))))
+        .and(parse_obj_body(st.incr()))
+        .map(class_body::new)
 }
 
 parser! {
-    fn parse_class_body['a](st: State)(&'a str) -> class_body
+    pub fn parse_class_body['a](st: State)(&'a str) -> class_body
     where []
     {
         parse_class_body_(*st)
@@ -2396,18 +2731,21 @@ pub struct imp {
 }
 
 pub fn parse_imp_<'a>(st: State) -> impl Parser<&'a str, Output = imp> {
+    fn is_some<U>(o: Option<U>) -> bool {
+        o.is_some()
+    }
     struct_parser! {
         imp {
             _: keyword("import"),
             id: optional(parse_id(st.incr())),
-            equal: optional(symbol("=")).map(|x| x.is_some()),
+            equal: optional(symbol("=")).map(is_some),
             name: parse_text(st.incr()),
         }
     }
 }
 
 parser! {
-    fn parse_imp['a](st: State)(&'a str) -> imp
+    pub fn parse_imp['a](st: State)(&'a str) -> imp
     where []
     {
         parse_imp_(*st)
@@ -2436,7 +2774,7 @@ pub fn parse_prog_<'a>(st: State) -> impl Parser<&'a str, Output = prog> {
 }
 
 parser! {
-    fn parse_prog['a](st: State)(&'a str) -> prog
+    pub fn parse_prog['a](st: State)(&'a str) -> prog
     where []
     {
         parse_prog_(*st)
