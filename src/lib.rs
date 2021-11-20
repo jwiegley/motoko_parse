@@ -3,9 +3,11 @@
 
 use combine::parser::char::{char, spaces, string};
 use combine::parser::combinator::Either;
+#[cfg(test)]
+use combine::EasyParser;
 use combine::{
-    attempt, between, choice, many, many1, optional, parser, satisfy, sep_by, sep_by1, sep_end_by,
-    sep_end_by1, struct_parser, unexpected_any, value, Parser,
+    attempt, between, choice, easy, many, many1, optional, parser, satisfy, sep_by, sep_by1,
+    sep_end_by, sep_end_by1, struct_parser, unexpected_any, value, Parser,
 };
 use rug::{Float, Integer};
 
@@ -53,7 +55,7 @@ fn cons((x, xs): (char, Vec<char>)) -> String {
     vec![x].into_iter().chain(xs.into_iter()).collect()
 }
 
-pub fn parse_id_<'a>(st: State) -> impl Parser<&'a str, Output = id> {
+pub fn parse_id_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = id> {
     st.indent();
     println!("parse_id");
     satisfy(is_alphabetic)
@@ -62,7 +64,7 @@ pub fn parse_id_<'a>(st: State) -> impl Parser<&'a str, Output = id> {
 }
 
 parser! {
-    pub fn parse_id['a](st: State)(&'a str) -> id
+    pub fn parse_id['a](st: State)(easy::Stream<&'a str>) -> id
     where []
     {
         parse_id_(*st)
@@ -73,11 +75,11 @@ parser! {
 fn test_parse_id() {
     pretty_assertions::assert_eq!(
         Ok(("HelloWorld".to_string(), " GoodbyeWorld")),
-        parse_id(State::new()).parse("HelloWorld GoodbyeWorld"),
+        parse_id(State::new()).easy_parse("HelloWorld GoodbyeWorld"),
     );
 }
 
-pub fn parse_bool_<'a>(st: State) -> impl Parser<&'a str, Output = bool> {
+pub fn parse_bool_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = bool> {
     st.indent();
     println!("parse_bool");
     keyword("true")
@@ -86,7 +88,7 @@ pub fn parse_bool_<'a>(st: State) -> impl Parser<&'a str, Output = bool> {
 }
 
 parser! {
-    pub fn parse_bool['a](st: State)(&'a str) -> bool
+    pub fn parse_bool['a](st: State)(easy::Stream<&'a str>) -> bool
     where []
     {
         parse_bool_(*st)
@@ -97,11 +99,11 @@ parser! {
 fn test_parse_bool() {
     pretty_assertions::assert_eq!(
         Ok((true, ", false")),
-        parse_bool(State::new()).parse("true, false"),
+        parse_bool(State::new()).easy_parse("true, false"),
     );
     pretty_assertions::assert_eq!(
         Ok((false, ", true")),
-        parse_bool(State::new()).parse("false, true"),
+        parse_bool(State::new()).easy_parse("false, true"),
     );
 }
 
@@ -109,21 +111,21 @@ fn is_numeric(c: char) -> bool {
     c.is_numeric()
 }
 
-fn parse_integer<'a>(xs: Vec<char>) -> impl Parser<&'a str, Output = Integer> {
+fn parse_integer<'a>(xs: Vec<char>) -> impl Parser<easy::Stream<&'a str>, Output = Integer> {
     match Integer::parse(xs.into_iter().collect::<String>()).map(Integer::from) {
         Ok(int) => value(int).left(),
         Err(_err) => unexpected_any("nat").right(),
     }
 }
 
-pub fn parse_nat_<'a>(st: State) -> impl Parser<&'a str, Output = nat> {
+pub fn parse_nat_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = nat> {
     st.indent();
     println!("parse_nat");
     many(satisfy(is_numeric)).skip(spaces()).then(parse_integer)
 }
 
 parser! {
-    pub fn parse_nat['a](st: State)(&'a str) -> nat
+    pub fn parse_nat['a](st: State)(easy::Stream<&'a str>) -> nat
     where []
     {
         parse_nat_(*st)
@@ -134,11 +136,11 @@ parser! {
 fn test_parse_nat() {
     pretty_assertions::assert_eq!(
         Ok((Integer::from(123), "")),
-        parse_nat(State::new()).parse("123"),
+        parse_nat(State::new()).easy_parse("123"),
     );
     pretty_assertions::assert_eq!(
         Ok((Integer::from(123), "")),
-        parse_nat(State::new()).parse("0123"),
+        parse_nat(State::new()).easy_parse("0123"),
     );
 }
 
@@ -150,7 +152,9 @@ fn test_parse_nat() {
 // }
 
 // jww (2021-11-20): Finish this
-fn parse_rug_float<'a>((xs, _ys): (Vec<char>, Vec<char>)) -> impl Parser<&'a str, Output = Float> {
+fn parse_rug_float<'a>(
+    (xs, _ys): (Vec<char>, Vec<char>),
+) -> impl Parser<easy::Stream<&'a str>, Output = Float> {
     fn with_53<T>(v: T) -> Float
     where
         Float: rug::Assign<T>,
@@ -163,7 +167,7 @@ fn parse_rug_float<'a>((xs, _ys): (Vec<char>, Vec<char>)) -> impl Parser<&'a str
     }
 }
 
-pub fn parse_float_<'a>(st: State) -> impl Parser<&'a str, Output = float> {
+pub fn parse_float_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = float> {
     st.indent();
     println!("parse_float");
     many(satisfy(is_numeric))
@@ -174,7 +178,7 @@ pub fn parse_float_<'a>(st: State) -> impl Parser<&'a str, Output = float> {
 }
 
 parser! {
-    pub fn parse_float['a](st: State)(&'a str) -> float
+    pub fn parse_float['a](st: State)(easy::Stream<&'a str>) -> float
     where []
     {
         parse_float_(*st)
@@ -186,7 +190,7 @@ parser! {
 fn test_parse_float() {
     pretty_assertions::assert_eq!(
         Ok((Float::with_val(53, 1.3), "")),
-        parse_float(State::new()).parse("1.3"),
+        parse_float(State::new()).easy_parse("1.3"),
     );
 }
 */
@@ -196,7 +200,7 @@ fn not_quote(c: char) -> bool {
 }
 
 // jww (2021-11-18): What is the grammer here?
-pub fn parse_char_<'a>(st: State) -> impl Parser<&'a str, Output = char> {
+pub fn parse_char_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = char> {
     st.indent();
     println!("parse_char");
     char('\'')
@@ -205,7 +209,7 @@ pub fn parse_char_<'a>(st: State) -> impl Parser<&'a str, Output = char> {
 }
 
 parser! {
-    pub fn parse_char['a](st: State)(&'a str) -> char
+    pub fn parse_char['a](st: State)(easy::Stream<&'a str>) -> char
     where []
     {
         parse_char_(*st)
@@ -217,7 +221,7 @@ fn not_double_quote(c: char) -> bool {
 }
 
 // jww (2021-11-18): What is the grammer here?
-pub fn parse_text_<'a>(st: State) -> impl Parser<&'a str, Output = text> {
+pub fn parse_text_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = text> {
     st.indent();
     println!("parse_text");
     char('"')
@@ -227,14 +231,16 @@ pub fn parse_text_<'a>(st: State) -> impl Parser<&'a str, Output = text> {
 }
 
 parser! {
-    pub fn parse_text['a](st: State)(&'a str) -> text
+    pub fn parse_text['a](st: State)(easy::Stream<&'a str>) -> text
     where []
     {
         parse_text_(*st)
     }
 }
 
-pub fn braces<'a, T>(p: impl Parser<&'a str, Output = T>) -> impl Parser<&'a str, Output = T> {
+pub fn braces<'a, T>(
+    p: impl Parser<easy::Stream<&'a str>, Output = T>,
+) -> impl Parser<easy::Stream<&'a str>, Output = T> {
     between(symbol("{"), symbol("}"), p)
 }
 
@@ -242,11 +248,13 @@ pub fn braces<'a, T>(p: impl Parser<&'a str, Output = T>) -> impl Parser<&'a str
 fn test_braces() {
     pretty_assertions::assert_eq!(
         Ok((Integer::from(100), "")),
-        braces(parse_nat(State::new()).skip(spaces())).parse("{ 100 }"),
+        braces(parse_nat(State::new()).skip(spaces())).easy_parse("{ 100 }"),
     );
 }
 
-pub fn parens<'a, T>(p: impl Parser<&'a str, Output = T>) -> impl Parser<&'a str, Output = T> {
+pub fn parens<'a, T>(
+    p: impl Parser<easy::Stream<&'a str>, Output = T>,
+) -> impl Parser<easy::Stream<&'a str>, Output = T> {
     between(symbol("("), symbol(")"), p)
 }
 
@@ -254,11 +262,13 @@ pub fn parens<'a, T>(p: impl Parser<&'a str, Output = T>) -> impl Parser<&'a str
 fn test_parens() {
     pretty_assertions::assert_eq!(
         Ok((Integer::from(100), "")),
-        parens(parse_nat(State::new()).skip(spaces())).parse("( 100 )"),
+        parens(parse_nat(State::new()).skip(spaces())).easy_parse("( 100 )"),
     );
 }
 
-pub fn brackets<'a, T>(p: impl Parser<&'a str, Output = T>) -> impl Parser<&'a str, Output = T> {
+pub fn brackets<'a, T>(
+    p: impl Parser<easy::Stream<&'a str>, Output = T>,
+) -> impl Parser<easy::Stream<&'a str>, Output = T> {
     between(symbol("["), symbol("]"), p)
 }
 
@@ -266,11 +276,13 @@ pub fn brackets<'a, T>(p: impl Parser<&'a str, Output = T>) -> impl Parser<&'a s
 fn test_brackets() {
     pretty_assertions::assert_eq!(
         Ok((Integer::from(100), "")),
-        brackets(parse_nat(State::new()).skip(spaces())).parse("[ 100 ]"),
+        brackets(parse_nat(State::new()).skip(spaces())).easy_parse("[ 100 ]"),
     );
 }
 
-pub fn angles<'a, T>(p: impl Parser<&'a str, Output = T>) -> impl Parser<&'a str, Output = T> {
+pub fn angles<'a, T>(
+    p: impl Parser<easy::Stream<&'a str>, Output = T>,
+) -> impl Parser<easy::Stream<&'a str>, Output = T> {
     between(symbol("<"), symbol(">"), p)
 }
 
@@ -278,28 +290,28 @@ pub fn angles<'a, T>(p: impl Parser<&'a str, Output = T>) -> impl Parser<&'a str
 fn test_angles() {
     pretty_assertions::assert_eq!(
         Ok((Integer::from(100), "")),
-        angles(parse_nat(State::new()).skip(spaces())).parse("< 100 >"),
+        angles(parse_nat(State::new()).skip(spaces())).easy_parse("< 100 >"),
     );
 }
 
-pub fn keyword<'a>(s: &'static str) -> impl Parser<&'a str, Output = &str> {
-    string(s).skip(spaces())
+pub fn keyword<'a>(s: &'static str) -> impl Parser<easy::Stream<&'a str>, Output = &str> {
+    attempt(string(s)).skip(spaces())
 }
 
 #[test]
 fn test_keyword() {
     pretty_assertions::assert_eq!(
         Ok((("foo", "bar"), "(13)")),
-        keyword("foo").and(keyword("bar")).parse("foo bar(13)"),
+        keyword("foo").and(keyword("bar")).easy_parse("foo bar(13)"),
     );
 }
 
-pub fn symbol<'a>(s: &'static str) -> impl Parser<&'a str, Output = &str> {
-    string(s).skip(spaces())
+pub fn symbol<'a>(s: &'static str) -> impl Parser<easy::Stream<&'a str>, Output = &str> {
+    attempt(string(s)).skip(spaces())
 }
 
-pub fn operator<'a>(s: &'static str) -> impl Parser<&'a str, Output = &str> {
-    string(s).skip(spaces())
+pub fn operator<'a>(s: &'static str) -> impl Parser<easy::Stream<&'a str>, Output = &str> {
+    attempt(string(s)).skip(spaces())
 }
 
 fn first_is_some<U, V>((x, y): (Option<U>, V)) -> (bool, V) {
@@ -307,8 +319,8 @@ fn first_is_some<U, V>((x, y): (Option<U>, V)) -> (bool, V) {
 }
 
 pub fn parse_var_opt<'a, T>(
-    p: impl Parser<&'a str, Output = T>,
-) -> impl Parser<&'a str, Output = (bool, T)> {
+    p: impl Parser<easy::Stream<&'a str>, Output = T>,
+) -> impl Parser<easy::Stream<&'a str>, Output = (bool, T)> {
     optional(keyword("var")).and(p).map(first_is_some)
 }
 
@@ -316,11 +328,11 @@ pub fn parse_var_opt<'a, T>(
 fn test_parse_var_opt() {
     pretty_assertions::assert_eq!(
         Ok(((true, Integer::from(100)), "")),
-        parse_var_opt(parse_nat(State::new()).skip(spaces())).parse("var 100"),
+        parse_var_opt(parse_nat(State::new()).skip(spaces())).easy_parse("var 100"),
     );
     pretty_assertions::assert_eq!(
         Ok(((false, Integer::from(100)), "")),
-        parse_var_opt(parse_nat(State::new()).skip(spaces())).parse("100"),
+        parse_var_opt(parse_nat(State::new()).skip(spaces())).easy_parse("100"),
     );
 }
 
@@ -360,7 +372,7 @@ pub enum obj_sort {
     module,
 }
 
-pub fn parse_obj_sort_<'a>(st: State) -> impl Parser<&'a str, Output = obj_sort> {
+pub fn parse_obj_sort_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = obj_sort> {
     st.indent();
     println!("parse_obj_sort");
     choice([
@@ -371,7 +383,7 @@ pub fn parse_obj_sort_<'a>(st: State) -> impl Parser<&'a str, Output = obj_sort>
 }
 
 parser! {
-    pub fn parse_obj_sort['a](st: State)(&'a str) -> obj_sort
+    pub fn parse_obj_sort['a](st: State)(easy::Stream<&'a str>) -> obj_sort
     where []
     {
         parse_obj_sort_(*st)
@@ -382,7 +394,7 @@ parser! {
 fn test_parse_obj_sort() {
     pretty_assertions::assert_eq!(
         Ok((obj_sort::object, "hello")),
-        parse_obj_sort(State::new()).parse("object hello"),
+        parse_obj_sort(State::new()).easy_parse("object hello"),
     );
 }
 
@@ -405,7 +417,9 @@ impl func_sort_opt {
     }
 }
 
-pub fn parse_func_sort_opt_<'a>(st: State) -> impl Parser<&'a str, Output = func_sort_opt> {
+pub fn parse_func_sort_opt_<'a>(
+    st: State,
+) -> impl Parser<easy::Stream<&'a str>, Output = func_sort_opt> {
     st.indent();
     println!("parse_func_sort_opt");
     keyword("shared")
@@ -415,7 +429,7 @@ pub fn parse_func_sort_opt_<'a>(st: State) -> impl Parser<&'a str, Output = func
 }
 
 parser! {
-    pub fn parse_func_sort_opt['a](st: State)(&'a str) -> func_sort_opt
+    pub fn parse_func_sort_opt['a](st: State)(easy::Stream<&'a str>) -> func_sort_opt
     where []
     {
         parse_func_sort_opt_(*st)
@@ -426,15 +440,15 @@ parser! {
 fn test_func_sort_opt() {
     pretty_assertions::assert_eq!(
         Ok((func_sort_opt::shared(false), "hello")),
-        parse_func_sort_opt(State::new()).parse("shared hello"),
+        parse_func_sort_opt(State::new()).easy_parse("shared hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((func_sort_opt::shared(true), "hello")),
-        parse_func_sort_opt(State::new()).parse("shared query hello"),
+        parse_func_sort_opt(State::new()).easy_parse("shared query hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((func_sort_opt::query, "hello")),
-        parse_func_sort_opt(State::new()).parse("query hello"),
+        parse_func_sort_opt(State::new()).easy_parse("query hello"),
     );
 }
 
@@ -461,7 +475,9 @@ impl shared_pat_opt {
     }
 }
 
-pub fn parse_shared_pat_opt_<'a>(st: State) -> impl Parser<&'a str, Output = shared_pat_opt> {
+pub fn parse_shared_pat_opt_<'a>(
+    st: State,
+) -> impl Parser<easy::Stream<&'a str>, Output = shared_pat_opt> {
     st.indent();
     println!("parse_shared_pat_opt");
     keyword("shared")
@@ -474,7 +490,7 @@ pub fn parse_shared_pat_opt_<'a>(st: State) -> impl Parser<&'a str, Output = sha
 }
 
 parser! {
-    pub fn parse_shared_pat_opt['a](st: State)(&'a str) -> shared_pat_opt
+    pub fn parse_shared_pat_opt['a](st: State)(easy::Stream<&'a str>) -> shared_pat_opt
     where []
     {
         parse_shared_pat_opt_(*st)
@@ -488,30 +504,30 @@ fn test_shared_pat_opt() {
             shared_pat_opt::shared(false, Some(pat_plain::underscore)),
             "hello"
         )),
-        parse_shared_pat_opt(State::new()).parse("shared _ hello"),
+        parse_shared_pat_opt(State::new()).easy_parse("shared _ hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((shared_pat_opt::shared(false, None), "{} hello")),
-        parse_shared_pat_opt(State::new()).parse("shared{} hello"),
+        parse_shared_pat_opt(State::new()).easy_parse("shared{} hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((
             shared_pat_opt::shared(true, Some(pat_plain::underscore)),
             "hello"
         )),
-        parse_shared_pat_opt(State::new()).parse("shared query _ hello"),
+        parse_shared_pat_opt(State::new()).easy_parse("shared query _ hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((shared_pat_opt::shared(true, None), "{} hello")),
-        parse_shared_pat_opt(State::new()).parse("shared query{} hello"),
+        parse_shared_pat_opt(State::new()).easy_parse("shared query{} hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((shared_pat_opt::query(Some(pat_plain::underscore)), "hello")),
-        parse_shared_pat_opt(State::new()).parse("query _ hello"),
+        parse_shared_pat_opt(State::new()).easy_parse("query _ hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((shared_pat_opt::query(None), "{} hello")),
-        parse_shared_pat_opt(State::new()).parse("query{} hello"),
+        parse_shared_pat_opt(State::new()).easy_parse("query{} hello"),
     );
 }
 
@@ -531,14 +547,14 @@ impl typ_obj {
     }
 }
 
-pub fn parse_typ_obj_<'a>(st: State) -> impl Parser<&'a str, Output = typ_obj> {
+pub fn parse_typ_obj_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_obj> {
     st.indent();
     println!("parse_typ_obj");
     sep_end_by(parse_typ_field(st.incr()), symbol(";")).map(typ_obj::new)
 }
 
 parser! {
-    pub fn parse_typ_obj['a](st: State)(&'a str) -> typ_obj
+    pub fn parse_typ_obj['a](st: State)(easy::Stream<&'a str>) -> typ_obj
     where []
     {
         parse_typ_obj_(*st)
@@ -557,7 +573,9 @@ pub enum typ_variant {
     variants(list1<typ_tag>),
 }
 
-pub fn parse_typ_variant_<'a>(st: State) -> impl Parser<&'a str, Output = typ_variant> {
+pub fn parse_typ_variant_<'a>(
+    st: State,
+) -> impl Parser<easy::Stream<&'a str>, Output = typ_variant> {
     st.indent();
     println!("parse_typ_variant");
     braces(
@@ -570,7 +588,7 @@ pub fn parse_typ_variant_<'a>(st: State) -> impl Parser<&'a str, Output = typ_va
 }
 
 parser! {
-    pub fn parse_typ_variant['a](st: State)(&'a str) -> typ_variant
+    pub fn parse_typ_variant['a](st: State)(easy::Stream<&'a str>) -> typ_variant
     where []
     {
         parse_typ_variant_(*st)
@@ -605,7 +623,9 @@ impl typ_nullary {
     }
 }
 
-pub fn parse_typ_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nullary> {
+pub fn parse_typ_nullary_<'a>(
+    st: State,
+) -> impl Parser<easy::Stream<&'a str>, Output = typ_nullary> {
     st.indent();
     println!("parse_typ_nullary");
     parens(sep_by(parse_typ_item(st.incr()), symbol(",")))
@@ -619,7 +639,7 @@ pub fn parse_typ_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nu
 }
 
 parser! {
-    pub fn parse_typ_nullary['a](st: State)(&'a str) -> typ_nullary
+    pub fn parse_typ_nullary['a](st: State)(easy::Stream<&'a str>) -> typ_nullary
     where []
     {
         parse_typ_nullary_(*st)
@@ -644,18 +664,17 @@ impl typ_un {
     }
 }
 
-pub fn parse_typ_un_<'a>(st: State) -> impl Parser<&'a str, Output = typ_un> {
+pub fn parse_typ_un_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_un> {
     st.indent();
     println!("parse_typ_un");
-    parse_typ_nullary(st.incr())
-        .map(typ_un::nullary)
-        .or(symbol("?")
-            .with(parse_typ_un(st.incr()))
-            .map(typ_un::typ_un_question))
+    symbol("?")
+        .with(parse_typ_un(st.incr()))
+        .map(typ_un::typ_un_question)
+        .or(parse_typ_nullary(st.incr()).map(typ_un::nullary))
 }
 
 parser! {
-    pub fn parse_typ_un['a](st: State)(&'a str) -> typ_un
+    pub fn parse_typ_un['a](st: State)(easy::Stream<&'a str>) -> typ_un
     where []
     {
         parse_typ_un_(*st)
@@ -686,7 +705,7 @@ impl typ_pre {
     }
 }
 
-pub fn parse_typ_pre_<'a>(st: State) -> impl Parser<&'a str, Output = typ_pre> {
+pub fn parse_typ_pre_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_pre> {
     st.indent();
     println!("parse_typ_pre");
     parse_typ_un(st.incr())
@@ -700,7 +719,7 @@ pub fn parse_typ_pre_<'a>(st: State) -> impl Parser<&'a str, Output = typ_pre> {
 }
 
 parser! {
-    pub fn parse_typ_pre['a](st: State)(&'a str) -> typ_pre
+    pub fn parse_typ_pre['a](st: State)(easy::Stream<&'a str>) -> typ_pre
     where []
     {
         parse_typ_pre_(*st)
@@ -740,7 +759,7 @@ impl typ_nobin {
     }
 }
 
-pub fn parse_typ_nobin_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nobin> {
+pub fn parse_typ_nobin_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_nobin> {
     st.indent();
     println!("parse_typ_nobin");
     parse_typ_pre(st.incr())
@@ -757,7 +776,7 @@ pub fn parse_typ_nobin_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nobi
 }
 
 parser! {
-    pub fn parse_typ_nobin['a](st: State)(&'a str) -> typ_nobin
+    pub fn parse_typ_nobin['a](st: State)(easy::Stream<&'a str>) -> typ_nobin
     where []
     {
         parse_typ_nobin_(*st)
@@ -778,26 +797,29 @@ pub enum typ {
     or(Box<typ_nobin>, Box<typ>),
 }
 
-pub fn parse_typ_<'a>(st: State) -> impl Parser<&'a str, Output = typ> {
+pub fn parse_typ_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ> {
     st.indent();
     println!("parse_typ");
-    fn and_or<'a>((l, r_opt): (typ_nobin, Option<(&'a str, typ)>)) -> typ {
+    fn and_or<'a>((l, r_opt): (typ_nobin, Option<(bool, typ)>)) -> typ {
         match r_opt {
-            Some(("and", r)) => typ::or(Box::new(l), Box::new(r)),
-            Some((_, r)) => typ::or(Box::new(l), Box::new(r)),
+            Some((true, r)) => typ::or(Box::new(l), Box::new(r)),
+            Some((false, r)) => typ::or(Box::new(l), Box::new(r)),
             None => typ::nobin(Box::new(l)),
         }
     }
     parse_typ_nobin(st.incr())
         .and(optional(
-            keyword("and").or(keyword("or")).and(parse_typ(st.incr())),
+            keyword("and")
+                .with(value(true))
+                .or(keyword("or").with(value(false)))
+                .and(parse_typ(st.incr())),
         ))
         .skip(spaces())
         .map(and_or)
 }
 
 parser! {
-    pub fn parse_typ['a](st: State)(&'a str) -> typ
+    pub fn parse_typ['a](st: State)(easy::Stream<&'a str>) -> typ
     where []
     {
         parse_typ_(*st)
@@ -822,7 +844,7 @@ impl typ_item {
     }
 }
 
-pub fn parse_typ_item_<'a>(st: State) -> impl Parser<&'a str, Output = typ_item> {
+pub fn parse_typ_item_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_item> {
     st.indent();
     println!("parse_typ_item");
     parse_id(st.incr())
@@ -833,7 +855,7 @@ pub fn parse_typ_item_<'a>(st: State) -> impl Parser<&'a str, Output = typ_item>
 }
 
 parser! {
-    pub fn parse_typ_item['a](st: State)(&'a str) -> typ_item
+    pub fn parse_typ_item['a](st: State)(easy::Stream<&'a str>) -> typ_item
     where []
     {
         parse_typ_item_(*st)
@@ -857,14 +879,14 @@ impl typ_args {
     }
 }
 
-pub fn parse_typ_args_<'a>(st: State) -> impl Parser<&'a str, Output = typ_args> {
+pub fn parse_typ_args_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_args> {
     st.indent();
     println!("parse_typ_args");
     angles(sep_by(parse_typ(st.incr()), symbol(","))).map(typ_args::new)
 }
 
 parser! {
-    pub fn parse_typ_args['a](st: State)(&'a str) -> typ_args
+    pub fn parse_typ_args['a](st: State)(easy::Stream<&'a str>) -> typ_args
     where []
     {
         parse_typ_args_(*st)
@@ -905,7 +927,7 @@ impl typ_field {
     }
 }
 
-pub fn parse_typ_field_<'a>(st: State) -> impl Parser<&'a str, Output = typ_field> {
+pub fn parse_typ_field_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_field> {
     st.indent();
     println!("parse_typ_field");
     parse_var_opt(parse_id(st.incr()))
@@ -924,7 +946,7 @@ pub fn parse_typ_field_<'a>(st: State) -> impl Parser<&'a str, Output = typ_fiel
 }
 
 parser! {
-    pub fn parse_typ_field['a](st: State)(&'a str) -> typ_field
+    pub fn parse_typ_field['a](st: State)(easy::Stream<&'a str>) -> typ_field
     where []
     {
         parse_typ_field_(*st)
@@ -952,7 +974,7 @@ impl typ_tag {
     }
 }
 
-pub fn parse_typ_tag_<'a>(st: State) -> impl Parser<&'a str, Output = typ_tag> {
+pub fn parse_typ_tag_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_tag> {
     st.indent();
     println!("parse_typ_tag");
     symbol("#")
@@ -962,7 +984,7 @@ pub fn parse_typ_tag_<'a>(st: State) -> impl Parser<&'a str, Output = typ_tag> {
 }
 
 parser! {
-    pub fn parse_typ_tag['a](st: State)(&'a str) -> typ_tag
+    pub fn parse_typ_tag['a](st: State)(easy::Stream<&'a str>) -> typ_tag
     where []
     {
         parse_typ_tag_(*st)
@@ -981,7 +1003,7 @@ pub struct typ_bind {
     pub typ: Option<typ>,
 }
 
-pub fn parse_typ_bind_<'a>(st: State) -> impl Parser<&'a str, Output = typ_bind> {
+pub fn parse_typ_bind_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_bind> {
     st.indent();
     println!("parse_typ_bind");
     struct_parser! {
@@ -993,7 +1015,7 @@ pub fn parse_typ_bind_<'a>(st: State) -> impl Parser<&'a str, Output = typ_bind>
 }
 
 parser! {
-    pub fn parse_typ_bind['a](st: State)(&'a str) -> typ_bind
+    pub fn parse_typ_bind['a](st: State)(easy::Stream<&'a str>) -> typ_bind
     where []
     {
         parse_typ_bind_(*st)
@@ -1024,7 +1046,7 @@ pub enum lit {
     text(text),
 }
 
-pub fn parse_lit_<'a>(st: State) -> impl Parser<&'a str, Output = lit> {
+pub fn parse_lit_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = lit> {
     st.indent();
     println!("parse_lit");
     keyword("null")
@@ -1037,7 +1059,7 @@ pub fn parse_lit_<'a>(st: State) -> impl Parser<&'a str, Output = lit> {
 }
 
 parser! {
-    pub fn parse_lit['a](st: State)(&'a str) -> lit
+    pub fn parse_lit['a](st: State)(easy::Stream<&'a str>) -> lit
     where []
     {
         parse_lit_(*st)
@@ -1048,28 +1070,28 @@ parser! {
 fn test_parse_lit() {
     pretty_assertions::assert_eq!(
         Ok((lit::null, "hello")),
-        parse_lit(State::new()).parse("null hello"),
+        parse_lit(State::new()).easy_parse("null hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((lit::bool_(true), "hello")),
-        parse_lit(State::new()).parse("true hello"),
+        parse_lit(State::new()).easy_parse("true hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((lit::nat(Integer::from(123)), "hello")),
-        parse_lit(State::new()).parse("123 hello"),
+        parse_lit(State::new()).easy_parse("123 hello"),
     );
     // jww (2021-11-20): Not working yet
     // pretty_assertions::assert_eq!(
     //     Ok((lit::float(Float::with_val(53, 1.3)), "hello")),
-    //     parse_lit(State::new()).parse("1.3 hello"),
+    //     parse_lit(State::new()).easy_parse("1.3 hello"),
     // );
     pretty_assertions::assert_eq!(
         Ok((lit::char_('c'), "hello")),
-        parse_lit(State::new()).parse("'c' hello"),
+        parse_lit(State::new()).easy_parse("'c' hello"),
     );
     pretty_assertions::assert_eq!(
         Ok((lit::text("string".to_string()), "hello")),
-        parse_lit(State::new()).parse("\"string\" hello"),
+        parse_lit(State::new()).easy_parse("\"string\" hello"),
     );
 }
 
@@ -1091,7 +1113,7 @@ pub enum unop {
     caret,
 }
 
-pub fn parse_unop_<'a>(st: State) -> impl Parser<&'a str, Output = unop> {
+pub fn parse_unop_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = unop> {
     st.indent();
     println!("parse_unop");
     choice([
@@ -1102,7 +1124,7 @@ pub fn parse_unop_<'a>(st: State) -> impl Parser<&'a str, Output = unop> {
 }
 
 parser! {
-    pub fn parse_unop['a](st: State)(&'a str) -> unop
+    pub fn parse_unop['a](st: State)(easy::Stream<&'a str>) -> unop
     where []
     {
         parse_unop_(*st)
@@ -1153,7 +1175,7 @@ pub enum binop {
     cat,
 }
 
-pub fn parse_binop_<'a>(st: State) -> impl Parser<&'a str, Output = binop> {
+pub fn parse_binop_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = binop> {
     st.indent();
     println!("parse_binop");
     choice([
@@ -1179,7 +1201,7 @@ pub fn parse_binop_<'a>(st: State) -> impl Parser<&'a str, Output = binop> {
 }
 
 parser! {
-    pub fn parse_binop['a](st: State)(&'a str) -> binop
+    pub fn parse_binop['a](st: State)(easy::Stream<&'a str>) -> binop
     where []
     {
         parse_binop_(*st)
@@ -1206,7 +1228,7 @@ pub enum relop {
     ge,
 }
 
-pub fn parse_relop_<'a>(st: State) -> impl Parser<&'a str, Output = relop> {
+pub fn parse_relop_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = relop> {
     st.indent();
     println!("parse_relop");
     choice([
@@ -1220,7 +1242,7 @@ pub fn parse_relop_<'a>(st: State) -> impl Parser<&'a str, Output = relop> {
 }
 
 parser! {
-    pub fn parse_relop['a](st: State)(&'a str) -> relop
+    pub fn parse_relop['a](st: State)(easy::Stream<&'a str>) -> relop
     where []
     {
         parse_relop_(*st)
@@ -1241,7 +1263,7 @@ pub enum unassign {
     caret,
 }
 
-pub fn parse_unassign_<'a>(st: State) -> impl Parser<&'a str, Output = unassign> {
+pub fn parse_unassign_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = unassign> {
     st.indent();
     println!("parse_unassign");
     choice([
@@ -1252,7 +1274,7 @@ pub fn parse_unassign_<'a>(st: State) -> impl Parser<&'a str, Output = unassign>
 }
 
 parser! {
-    pub fn parse_unassign['a](st: State)(&'a str) -> unassign
+    pub fn parse_unassign['a](st: State)(easy::Stream<&'a str>) -> unassign
     where []
     {
         parse_unassign_(*st)
@@ -1303,7 +1325,7 @@ pub enum binassign {
     at,
 }
 
-pub fn parse_binassign_<'a>(st: State) -> impl Parser<&'a str, Output = binassign> {
+pub fn parse_binassign_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = binassign> {
     st.indent();
     println!("parse_binassign");
     choice([
@@ -1329,7 +1351,7 @@ pub fn parse_binassign_<'a>(st: State) -> impl Parser<&'a str, Output = binassig
 }
 
 parser! {
-    pub fn parse_binassign['a](st: State)(&'a str) -> binassign
+    pub fn parse_binassign['a](st: State)(easy::Stream<&'a str>) -> binassign
     where []
     {
         parse_binassign_(*st)
@@ -1357,14 +1379,14 @@ impl exp_obj {
     }
 }
 
-pub fn parse_exp_obj_<'a>(st: State) -> impl Parser<&'a str, Output = exp_obj> {
+pub fn parse_exp_obj_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_obj> {
     st.indent();
     println!("parse_exp_obj");
     braces(sep_end_by(parse_exp_field(st.incr()), symbol(";")).map(exp_obj::new))
 }
 
 parser! {
-    pub fn parse_exp_obj['a](st: State)(&'a str) -> exp_obj
+    pub fn parse_exp_obj['a](st: State)(easy::Stream<&'a str>) -> exp_obj
     where []
     {
         parse_exp_obj_(*st)
@@ -1383,7 +1405,7 @@ pub enum exp_plain {
     exp(list<exp>),
 }
 
-pub fn parse_exp_plain_<'a>(st: State) -> impl Parser<&'a str, Output = exp_plain> {
+pub fn parse_exp_plain_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_plain> {
     st.indent();
     println!("parse_exp_plain");
     parse_lit(st.incr())
@@ -1392,7 +1414,7 @@ pub fn parse_exp_plain_<'a>(st: State) -> impl Parser<&'a str, Output = exp_plai
 }
 
 parser! {
-    pub fn parse_exp_plain['a](st: State)(&'a str) -> exp_plain
+    pub fn parse_exp_plain['a](st: State)(easy::Stream<&'a str>) -> exp_plain
     where []
     {
         parse_exp_plain_(*st)
@@ -1413,7 +1435,9 @@ pub enum exp_nullary {
     id(id),
 }
 
-pub fn parse_exp_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nullary> {
+pub fn parse_exp_nullary_<'a>(
+    st: State,
+) -> impl Parser<easy::Stream<&'a str>, Output = exp_nullary> {
     st.indent();
     println!("parse_exp_nullary");
     parse_exp_obj(st.incr())
@@ -1423,7 +1447,7 @@ pub fn parse_exp_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nu
 }
 
 parser! {
-    pub fn parse_exp_nullary['a](st: State)(&'a str) -> exp_nullary
+    pub fn parse_exp_nullary['a](st: State)(easy::Stream<&'a str>) -> exp_nullary
     where []
     {
         parse_exp_nullary_(*st)
@@ -1486,7 +1510,7 @@ impl exp_post__post {
     }
 }
 
-pub fn parse_exp_post_<'a>(st: State) -> impl Parser<&'a str, Output = exp_post> {
+pub fn parse_exp_post_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_post> {
     st.indent();
     println!("parse_exp_post");
     brackets(
@@ -1512,7 +1536,7 @@ pub fn parse_exp_post_<'a>(st: State) -> impl Parser<&'a str, Output = exp_post>
 }
 
 parser! {
-    pub fn parse_exp_post['a](st: State)(&'a str) -> exp_post
+    pub fn parse_exp_post['a](st: State)(easy::Stream<&'a str>) -> exp_post
     where []
     {
         parse_exp_post_(*st)
@@ -1570,7 +1594,7 @@ impl exp_un {
     }
 }
 
-pub fn parse_exp_un_<'a>(st: State) -> impl Parser<&'a str, Output = exp_un> {
+pub fn parse_exp_un_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_un> {
     st.indent();
     println!("parse_exp_un");
     symbol("#")
@@ -1599,7 +1623,7 @@ pub fn parse_exp_un_<'a>(st: State) -> impl Parser<&'a str, Output = exp_un> {
 }
 
 parser! {
-    pub fn parse_exp_un['a](st: State)(&'a str) -> exp_un
+    pub fn parse_exp_un['a](st: State)(easy::Stream<&'a str>) -> exp_un
     where []
     {
         parse_exp_un_(*st)
@@ -1672,7 +1696,7 @@ impl exp_bin__post {
     }
 }
 
-pub fn parse_exp_bin_<'a>(st: State) -> impl Parser<&'a str, Output = exp_bin> {
+pub fn parse_exp_bin_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_bin> {
     st.indent();
     println!("parse_exp_bin");
     parse_exp_un(st.incr())
@@ -1697,7 +1721,7 @@ pub fn parse_exp_bin_<'a>(st: State) -> impl Parser<&'a str, Output = exp_bin> {
 }
 
 parser! {
-    pub fn parse_exp_bin['a](st: State)(&'a str) -> exp_bin
+    pub fn parse_exp_bin['a](st: State)(easy::Stream<&'a str>) -> exp_bin
     where []
     {
         parse_exp_bin_(*st)
@@ -1810,20 +1834,11 @@ impl exp_nondec {
     }
 }
 
-pub fn parse_exp_nondec_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nondec> {
+pub fn parse_exp_nondec_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_nondec> {
     st.indent();
     println!("parse_exp_nondec");
-    parse_exp_bin(st.incr())
-        .and(optional(
-            keyword(":=")
-                .with(parse_exp(st.incr()))
-                .map(Either::Left)
-                .or(parse_binassign(st.incr())
-                    .and(parse_exp(st.incr()))
-                    .map(Either::Right)),
-        ))
-        .map(exp_nondec::exp_nondec_bin_assign_binassign)
-        .or(keyword("return").with(optional(parse_exp(st.incr())).map(exp_nondec::return_)))
+    keyword("return")
+        .with(optional(parse_exp(st.incr())).map(exp_nondec::return_))
         .or(keyword("async").with(parse_exp_nest(st.incr()).map(exp_nondec::async_)))
         .or(keyword("await").with(parse_exp_nest(st.incr()).map(exp_nondec::await_)))
         .or(keyword("assert").with(parse_exp_nest(st.incr()).map(exp_nondec::assert)))
@@ -1874,10 +1889,20 @@ pub fn parse_exp_nondec_<'a>(st: State) -> impl Parser<&'a str, Output = exp_non
                 .with(parse_block(st.incr()).map(exp_nondec::do_question))
                 .or(parse_block(st.incr()).map(exp_nondec::do_)),
         ))
+        .or(parse_exp_bin(st.incr())
+            .and(optional(
+                keyword(":=")
+                    .with(parse_exp(st.incr()))
+                    .map(Either::Left)
+                    .or(parse_binassign(st.incr())
+                        .and(parse_exp(st.incr()))
+                        .map(Either::Right)),
+            ))
+            .map(exp_nondec::exp_nondec_bin_assign_binassign))
 }
 
 parser! {
-    pub fn parse_exp_nondec['a](st: State)(&'a str) -> exp_nondec
+    pub fn parse_exp_nondec['a](st: State)(easy::Stream<&'a str>) -> exp_nondec
     where []
     {
         parse_exp_nondec_(*st)
@@ -1896,7 +1921,7 @@ pub enum exp_nonvar {
     dec_nonvar(dec_nonvar),
 }
 
-pub fn parse_exp_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nonvar> {
+pub fn parse_exp_nonvar_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_nonvar> {
     st.indent();
     println!("parse_exp_nonvar");
     parse_exp_nondec(st.incr())
@@ -1905,7 +1930,7 @@ pub fn parse_exp_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = exp_non
 }
 
 parser! {
-    pub fn parse_exp_nonvar['a](st: State)(&'a str) -> exp_nonvar
+    pub fn parse_exp_nonvar['a](st: State)(easy::Stream<&'a str>) -> exp_nonvar
     where []
     {
         parse_exp_nonvar_(*st)
@@ -1934,7 +1959,7 @@ impl exp {
     }
 }
 
-pub fn parse_exp_<'a>(st: State) -> impl Parser<&'a str, Output = exp> {
+pub fn parse_exp_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp> {
     st.indent();
     println!("parse_exp");
     parse_exp_nonvar(st.incr())
@@ -1943,7 +1968,7 @@ pub fn parse_exp_<'a>(st: State) -> impl Parser<&'a str, Output = exp> {
 }
 
 parser! {
-    pub fn parse_exp['a](st: State)(&'a str) -> exp
+    pub fn parse_exp['a](st: State)(easy::Stream<&'a str>) -> exp
     where []
     {
         parse_exp_(*st)
@@ -1964,7 +1989,7 @@ fn test_parse_exp() {
             exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(exp_nondec::bin(nat(1))))),
             "",
         )),
-        parse_exp(State::new()).parse("1"),
+        parse_exp(State::new()).easy_parse("1"),
     );
     pretty_assertions::assert_eq!(
         Ok((
@@ -1973,7 +1998,7 @@ fn test_parse_exp() {
             )))),
             ""
         ),),
-        parse_exp(State::new()).parse("1 + 3"),
+        parse_exp(State::new()).easy_parse("1 + 3"),
     );
     pretty_assertions::assert_eq!(
         Ok((
@@ -2002,7 +2027,7 @@ fn test_parse_exp() {
             )))),
             "",
         )),
-        parse_exp(State::new()).parse("(1 + 3) * 4 == 72 / 2"),
+        parse_exp(State::new()).easy_parse("(1 + 3) * 4 == 72 / 2"),
     );
 }
 
@@ -2018,7 +2043,7 @@ pub enum exp_nest {
     exp(exp),
 }
 
-pub fn parse_exp_nest_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nest> {
+pub fn parse_exp_nest_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_nest> {
     st.indent();
     println!("parse_exp_nest");
     parse_block(st.incr())
@@ -2027,7 +2052,7 @@ pub fn parse_exp_nest_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nest>
 }
 
 parser! {
-    pub fn parse_exp_nest['a](st: State)(&'a str) -> exp_nest
+    pub fn parse_exp_nest['a](st: State)(easy::Stream<&'a str>) -> exp_nest
     where []
     {
         parse_exp_nest_(*st)
@@ -2055,14 +2080,14 @@ impl block {
     }
 }
 
-pub fn parse_block_<'a>(st: State) -> impl Parser<&'a str, Output = block> {
+pub fn parse_block_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = block> {
     st.indent();
     println!("parse_block");
     braces(sep_end_by(parse_dec(st.incr()), symbol(";"))).map(block::new)
 }
 
 parser! {
-    pub fn parse_block['a](st: State)(&'a str) -> block
+    pub fn parse_block['a](st: State)(easy::Stream<&'a str>) -> block
     where []
     {
         parse_block_(*st)
@@ -2087,7 +2112,7 @@ impl case {
     }
 }
 
-pub fn parse_case_<'a>(st: State) -> impl Parser<&'a str, Output = case> {
+pub fn parse_case_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = case> {
     st.indent();
     println!("parse_case");
     keyword("case")
@@ -2097,7 +2122,7 @@ pub fn parse_case_<'a>(st: State) -> impl Parser<&'a str, Output = case> {
 }
 
 parser! {
-    pub fn parse_case['a](st: State)(&'a str) -> case
+    pub fn parse_case['a](st: State)(easy::Stream<&'a str>) -> case
     where []
     {
         parse_case_(*st)
@@ -2122,7 +2147,7 @@ impl catch {
     }
 }
 
-pub fn parse_catch_<'a>(st: State) -> impl Parser<&'a str, Output = catch> {
+pub fn parse_catch_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = catch> {
     st.indent();
     println!("parse_catch");
     keyword("catch")
@@ -2132,7 +2157,7 @@ pub fn parse_catch_<'a>(st: State) -> impl Parser<&'a str, Output = catch> {
 }
 
 parser! {
-    pub fn parse_catch['a](st: State)(&'a str) -> catch
+    pub fn parse_catch['a](st: State)(easy::Stream<&'a str>) -> catch
     where []
     {
         parse_catch_(*st)
@@ -2159,7 +2184,7 @@ impl exp_field {
     }
 }
 
-pub fn parse_exp_field_<'a>(st: State) -> impl Parser<&'a str, Output = exp_field> {
+pub fn parse_exp_field_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_field> {
     st.indent();
     println!("parse_exp_field");
     parse_var_opt(parse_id(st.incr()))
@@ -2169,7 +2194,7 @@ pub fn parse_exp_field_<'a>(st: State) -> impl Parser<&'a str, Output = exp_fiel
 }
 
 parser! {
-    pub fn parse_exp_field['a](st: State)(&'a str) -> exp_field
+    pub fn parse_exp_field['a](st: State)(easy::Stream<&'a str>) -> exp_field
     where []
     {
         parse_exp_field_(*st)
@@ -2189,7 +2214,7 @@ pub struct dec_field {
     pub dec: dec,
 }
 
-pub fn parse_dec_field_<'a>(st: State) -> impl Parser<&'a str, Output = dec_field> {
+pub fn parse_dec_field_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = dec_field> {
     st.indent();
     println!("parse_dec_field");
     struct_parser! {
@@ -2202,7 +2227,7 @@ pub fn parse_dec_field_<'a>(st: State) -> impl Parser<&'a str, Output = dec_fiel
 }
 
 parser! {
-    pub fn parse_dec_field['a](st: State)(&'a str) -> dec_field
+    pub fn parse_dec_field['a](st: State)(easy::Stream<&'a str>) -> dec_field
     where []
     {
         parse_dec_field_(*st)
@@ -2224,7 +2249,7 @@ pub enum vis {
     system,
 }
 
-pub fn parse_vis_<'a>(st: State) -> impl Parser<&'a str, Output = vis> {
+pub fn parse_vis_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = vis> {
     st.indent();
     println!("parse_vis");
     choice([
@@ -2235,7 +2260,7 @@ pub fn parse_vis_<'a>(st: State) -> impl Parser<&'a str, Output = vis> {
 }
 
 parser! {
-    pub fn parse_vis['a](st: State)(&'a str) -> vis
+    pub fn parse_vis['a](st: State)(easy::Stream<&'a str>) -> vis
     where []
     {
         parse_vis_(*st)
@@ -2255,7 +2280,7 @@ pub enum stab {
     stable,
 }
 
-pub fn parse_stab_<'a>(st: State) -> impl Parser<&'a str, Output = stab> {
+pub fn parse_stab_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = stab> {
     st.indent();
     println!("parse_stab");
     choice([
@@ -2265,7 +2290,7 @@ pub fn parse_stab_<'a>(st: State) -> impl Parser<&'a str, Output = stab> {
 }
 
 parser! {
-    pub fn parse_stab['a](st: State)(&'a str) -> stab
+    pub fn parse_stab['a](st: State)(easy::Stream<&'a str>) -> stab
     where []
     {
         parse_stab_(*st)
@@ -2292,7 +2317,7 @@ pub enum pat_plain {
     bins(list<pat_bin>),
 }
 
-pub fn parse_pat_plain_<'a>(st: State) -> impl Parser<&'a str, Output = pat_plain> {
+pub fn parse_pat_plain_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = pat_plain> {
     st.indent();
     println!("parse_pat_plain");
     symbol("_")
@@ -2303,7 +2328,7 @@ pub fn parse_pat_plain_<'a>(st: State) -> impl Parser<&'a str, Output = pat_plai
 }
 
 parser! {
-    pub fn parse_pat_plain['a](st: State)(&'a str) -> pat_plain
+    pub fn parse_pat_plain['a](st: State)(easy::Stream<&'a str>) -> pat_plain
     where []
     {
         parse_pat_plain_(*st)
@@ -2322,7 +2347,9 @@ pub enum pat_nullary {
     field(list<pat_field>),
 }
 
-pub fn parse_pat_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = pat_nullary> {
+pub fn parse_pat_nullary_<'a>(
+    st: State,
+) -> impl Parser<easy::Stream<&'a str>, Output = pat_nullary> {
     st.indent();
     println!("parse_pat_nullary");
     braces(sep_end_by(parse_pat_field(st.incr()), symbol(";")))
@@ -2331,7 +2358,7 @@ pub fn parse_pat_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = pat_nu
 }
 
 parser! {
-    pub fn parse_pat_nullary['a](st: State)(&'a str) -> pat_nullary
+    pub fn parse_pat_nullary['a](st: State)(easy::Stream<&'a str>) -> pat_nullary
     where []
     {
         parse_pat_nullary_(*st)
@@ -2369,7 +2396,7 @@ impl pat_un {
     }
 }
 
-pub fn parse_pat_un_<'a>(st: State) -> impl Parser<&'a str, Output = pat_un> {
+pub fn parse_pat_un_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = pat_un> {
     st.indent();
     println!("parse_pat_un");
     symbol("#")
@@ -2386,7 +2413,7 @@ pub fn parse_pat_un_<'a>(st: State) -> impl Parser<&'a str, Output = pat_un> {
 }
 
 parser! {
-    pub fn parse_pat_un['a](st: State)(&'a str) -> pat_un
+    pub fn parse_pat_un['a](st: State)(easy::Stream<&'a str>) -> pat_un
     where []
     {
         parse_pat_un_(*st)
@@ -2432,7 +2459,7 @@ impl pat_bin__post {
     }
 }
 
-pub fn parse_pat_bin_<'a>(st: State) -> impl Parser<&'a str, Output = pat_bin> {
+pub fn parse_pat_bin_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = pat_bin> {
     st.indent();
     println!("parse_pat_bin");
     parse_pat_un(st.incr())
@@ -2448,7 +2475,7 @@ pub fn parse_pat_bin_<'a>(st: State) -> impl Parser<&'a str, Output = pat_bin> {
 }
 
 parser! {
-    pub fn parse_pat_bin['a](st: State)(&'a str) -> pat_bin
+    pub fn parse_pat_bin['a](st: State)(easy::Stream<&'a str>) -> pat_bin
     where []
     {
         parse_pat_bin_(*st)
@@ -2465,7 +2492,7 @@ pub struct pat {
     pub bin: pat_bin,
 }
 
-pub fn parse_pat_<'a>(st: State) -> impl Parser<&'a str, Output = pat> {
+pub fn parse_pat_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = pat> {
     st.indent();
     println!("parse_pat");
     struct_parser! {
@@ -2476,7 +2503,7 @@ pub fn parse_pat_<'a>(st: State) -> impl Parser<&'a str, Output = pat> {
 }
 
 parser! {
-    pub fn parse_pat['a](st: State)(&'a str) -> pat
+    pub fn parse_pat['a](st: State)(easy::Stream<&'a str>) -> pat
     where []
     {
         parse_pat_(*st)
@@ -2496,7 +2523,7 @@ pub struct pat_field {
     pub pat: Option<pat>,
 }
 
-pub fn parse_pat_field_<'a>(st: State) -> impl Parser<&'a str, Output = pat_field> {
+pub fn parse_pat_field_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = pat_field> {
     st.indent();
     println!("parse_pat_field");
     struct_parser! {
@@ -2509,7 +2536,7 @@ pub fn parse_pat_field_<'a>(st: State) -> impl Parser<&'a str, Output = pat_fiel
 }
 
 parser! {
-    pub fn parse_pat_field['a](st: State)(&'a str) -> pat_field
+    pub fn parse_pat_field['a](st: State)(easy::Stream<&'a str>) -> pat_field
     where []
     {
         parse_pat_field_(*st)
@@ -2533,7 +2560,7 @@ pub struct dec_var {
     pub exp: exp,
 }
 
-pub fn parse_dec_var_<'a>(st: State) -> impl Parser<&'a str, Output = dec_var> {
+pub fn parse_dec_var_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = dec_var> {
     st.indent();
     println!("parse_dec_var");
     struct_parser! {
@@ -2546,7 +2573,7 @@ pub fn parse_dec_var_<'a>(st: State) -> impl Parser<&'a str, Output = dec_var> {
 }
 
 parser! {
-    pub fn parse_dec_var['a](st: State)(&'a str) -> dec_var
+    pub fn parse_dec_var['a](st: State)(easy::Stream<&'a str>) -> dec_var
     where []
     {
         parse_dec_var_(*st)
@@ -2650,7 +2677,7 @@ impl dec_nonvar {
     }
 }
 
-pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_nonvar> {
+pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = dec_nonvar> {
     st.indent();
     println!("parse_dec_nonvar");
     keyword("let")
@@ -2701,7 +2728,7 @@ pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_non
 }
 
 parser! {
-    pub fn parse_dec_nonvar['a](st: State)(&'a str) -> dec_nonvar
+    pub fn parse_dec_nonvar['a](st: State)(easy::Stream<&'a str>) -> dec_nonvar
     where []
     {
         parse_dec_nonvar_(*st)
@@ -2726,7 +2753,7 @@ fn test_parse_dec_nonvar() {
             ),
             "",
         )),
-        parse_dec_nonvar(State::new()).parse("func(name: nat): ?nat { return (name + 20); }"),
+        parse_dec_nonvar(State::new()).easy_parse("func(name: nat): ?nat { return (name + 20); }"),
     );
 }
 
@@ -2744,17 +2771,17 @@ pub enum dec {
     nondec(exp_nondec),
 }
 
-pub fn parse_dec_<'a>(st: State) -> impl Parser<&'a str, Output = dec> {
+pub fn parse_dec_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = dec> {
     st.indent();
     println!("parse_dec");
-    attempt(parse_dec_var(st.incr()))
-        .map(dec::var)
-        .or(attempt(parse_dec_nonvar(st.incr())).map(dec::nonvar))
-        .or(parse_exp_nondec(st.incr()).map(dec::nondec))
+    attempt(parse_exp_nondec(st.incr()))
+        .map(dec::nondec)
+        .or(attempt(parse_dec_var(st.incr())).map(dec::var))
+        .or(parse_dec_nonvar(st.incr()).map(dec::nonvar))
 }
 
 parser! {
-    pub fn parse_dec['a](st: State)(&'a str) -> dec
+    pub fn parse_dec['a](st: State)(easy::Stream<&'a str>) -> dec
         where []
     {
         parse_dec_(*st)
@@ -2777,7 +2804,7 @@ pub enum func_body {
     block(block),
 }
 
-pub fn parse_func_body_<'a>(st: State) -> impl Parser<&'a str, Output = func_body> {
+pub fn parse_func_body_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = func_body> {
     st.indent();
     println!("parse_func_body");
     symbol("=")
@@ -2786,7 +2813,7 @@ pub fn parse_func_body_<'a>(st: State) -> impl Parser<&'a str, Output = func_bod
 }
 
 parser! {
-    pub fn parse_func_body['a](st: State)(&'a str) -> func_body
+    pub fn parse_func_body['a](st: State)(easy::Stream<&'a str>) -> func_body
     where []
     {
         parse_func_body_(*st)
@@ -2804,7 +2831,7 @@ pub struct obj_body {
     pub fields: list<dec_field>,
 }
 
-pub fn parse_obj_body_<'a>(st: State) -> impl Parser<&'a str, Output = obj_body> {
+pub fn parse_obj_body_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = obj_body> {
     st.indent();
     println!("parse_obj_body");
     struct_parser! {
@@ -2815,7 +2842,7 @@ pub fn parse_obj_body_<'a>(st: State) -> impl Parser<&'a str, Output = obj_body>
 }
 
 parser! {
-    pub fn parse_obj_body['a](st: State)(&'a str) -> obj_body
+    pub fn parse_obj_body['a](st: State)(easy::Stream<&'a str>) -> obj_body
     where []
     {
         parse_obj_body_(*st)
@@ -2845,7 +2872,7 @@ impl class_body {
     }
 }
 
-pub fn parse_class_body_<'a>(st: State) -> impl Parser<&'a str, Output = class_body> {
+pub fn parse_class_body_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = class_body> {
     st.indent();
     println!("parse_class_body");
     optional(symbol("=").with(optional(parse_id(st.incr()))))
@@ -2854,7 +2881,7 @@ pub fn parse_class_body_<'a>(st: State) -> impl Parser<&'a str, Output = class_b
 }
 
 parser! {
-    pub fn parse_class_body['a](st: State)(&'a str) -> class_body
+    pub fn parse_class_body['a](st: State)(easy::Stream<&'a str>) -> class_body
     where []
     {
         parse_class_body_(*st)
@@ -2878,7 +2905,7 @@ fn is_some<U>(o: Option<U>) -> bool {
     o.is_some()
 }
 
-pub fn parse_imp_<'a>(st: State) -> impl Parser<&'a str, Output = imp> {
+pub fn parse_imp_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = imp> {
     st.indent();
     println!("parse_imp");
     struct_parser! {
@@ -2892,7 +2919,7 @@ pub fn parse_imp_<'a>(st: State) -> impl Parser<&'a str, Output = imp> {
 }
 
 parser! {
-    pub fn parse_imp['a](st: State)(&'a str) -> imp
+    pub fn parse_imp['a](st: State)(easy::Stream<&'a str>) -> imp
     where []
     {
         parse_imp_(*st)
@@ -2911,7 +2938,7 @@ pub struct prog {
     pub decs: list<dec>,
 }
 
-pub fn parse_prog_<'a>(st: State) -> impl Parser<&'a str, Output = prog> {
+pub fn parse_prog_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = prog> {
     st.indent();
     println!("parse_prog");
     struct_parser! {
@@ -2923,7 +2950,7 @@ pub fn parse_prog_<'a>(st: State) -> impl Parser<&'a str, Output = prog> {
 }
 
 parser! {
-    pub fn parse_prog['a](st: State)(&'a str) -> prog
+    pub fn parse_prog['a](st: State)(easy::Stream<&'a str>) -> prog
     where []
     {
         parse_prog_(*st)
