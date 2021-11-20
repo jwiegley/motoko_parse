@@ -4,7 +4,7 @@
 use combine::parser::char::{char, spaces, string};
 use combine::parser::combinator::Either;
 use combine::{
-    attempt, between, choice, many, many1, optional, parser, satisfy, sep_by, sep_end_by,
+    attempt, between, choice, many, many1, optional, parser, satisfy, sep_by, sep_by1, sep_end_by,
     sep_end_by1, struct_parser, unexpected_any, value, Parser,
 };
 use rug::{Float, Integer};
@@ -462,6 +462,8 @@ impl shared_pat_opt {
 }
 
 pub fn parse_shared_pat_opt_<'a>(st: State) -> impl Parser<&'a str, Output = shared_pat_opt> {
+    st.indent();
+    println!("parse_shared_pat_opt");
     keyword("shared")
         .with(optional(keyword("query")))
         .and(optional(parse_pat_plain(st.incr())))
@@ -530,6 +532,8 @@ impl typ_obj {
 }
 
 pub fn parse_typ_obj_<'a>(st: State) -> impl Parser<&'a str, Output = typ_obj> {
+    st.indent();
+    println!("parse_typ_obj");
     sep_end_by(parse_typ_field(st.incr()), symbol(";")).map(typ_obj::new)
 }
 
@@ -554,6 +558,8 @@ pub enum typ_variant {
 }
 
 pub fn parse_typ_variant_<'a>(st: State) -> impl Parser<&'a str, Output = typ_variant> {
+    st.indent();
+    println!("parse_typ_variant");
     braces(
         symbol("#").with(value(typ_variant::hash)).or(sep_end_by1(
             parse_typ_tag(st.incr()),
@@ -600,12 +606,14 @@ impl typ_nullary {
 }
 
 pub fn parse_typ_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nullary> {
+    st.indent();
+    println!("parse_typ_nullary");
     parens(sep_by(parse_typ_item(st.incr()), symbol(",")))
         .map(typ_nullary::list)
         .or(brackets(parse_var_opt(parse_typ(st.incr()))).map(typ_nullary::typ_nullary_bracket))
-        .or(parse_typ_obj(st.incr()).map(typ_nullary::obj))
-        .or(parse_typ_variant(st.incr()).map(typ_nullary::variant))
-        .or(sep_by(parse_id(st.incr()), symbol("."))
+        .or(attempt(parse_typ_obj(st.incr())).map(typ_nullary::obj))
+        .or(attempt(parse_typ_variant(st.incr())).map(typ_nullary::variant))
+        .or(sep_by1(parse_id(st.incr()), symbol("."))
             .and(optional(parse_typ_args(st.incr())))
             .map(typ_nullary::typ_nullary_dot))
 }
@@ -637,6 +645,8 @@ impl typ_un {
 }
 
 pub fn parse_typ_un_<'a>(st: State) -> impl Parser<&'a str, Output = typ_un> {
+    st.indent();
+    println!("parse_typ_un");
     parse_typ_nullary(st.incr())
         .map(typ_un::nullary)
         .or(symbol("?")
@@ -677,6 +687,8 @@ impl typ_pre {
 }
 
 pub fn parse_typ_pre_<'a>(st: State) -> impl Parser<&'a str, Output = typ_pre> {
+    st.indent();
+    println!("parse_typ_pre");
     parse_typ_un(st.incr())
         .map(typ_pre::un)
         .or(keyword("async")
@@ -729,6 +741,8 @@ impl typ_nobin {
 }
 
 pub fn parse_typ_nobin_<'a>(st: State) -> impl Parser<&'a str, Output = typ_nobin> {
+    st.indent();
+    println!("parse_typ_nobin");
     parse_typ_pre(st.incr())
         .map(typ_nobin::pre)
         .or(optional(parse_func_sort_opt(st.incr()))
@@ -765,6 +779,8 @@ pub enum typ {
 }
 
 pub fn parse_typ_<'a>(st: State) -> impl Parser<&'a str, Output = typ> {
+    st.indent();
+    println!("parse_typ");
     fn and_or<'a>((l, r_opt): (typ_nobin, Option<(&'a str, typ)>)) -> typ {
         match r_opt {
             Some(("and", r)) => typ::or(Box::new(l), Box::new(r)),
@@ -776,6 +792,7 @@ pub fn parse_typ_<'a>(st: State) -> impl Parser<&'a str, Output = typ> {
         .and(optional(
             keyword("and").or(keyword("or")).and(parse_typ(st.incr())),
         ))
+        .skip(spaces())
         .map(and_or)
 }
 
@@ -806,6 +823,8 @@ impl typ_item {
 }
 
 pub fn parse_typ_item_<'a>(st: State) -> impl Parser<&'a str, Output = typ_item> {
+    st.indent();
+    println!("parse_typ_item");
     parse_id(st.incr())
         .skip(symbol(":"))
         .and(parse_typ(st.incr()))
@@ -839,6 +858,8 @@ impl typ_args {
 }
 
 pub fn parse_typ_args_<'a>(st: State) -> impl Parser<&'a str, Output = typ_args> {
+    st.indent();
+    println!("parse_typ_args");
     angles(sep_by(parse_typ(st.incr()), symbol(","))).map(typ_args::new)
 }
 
@@ -885,6 +906,8 @@ impl typ_field {
 }
 
 pub fn parse_typ_field_<'a>(st: State) -> impl Parser<&'a str, Output = typ_field> {
+    st.indent();
+    println!("parse_typ_field");
     parse_var_opt(parse_id(st.incr()))
         .skip(symbol(":"))
         .and(parse_typ(st.incr()))
@@ -930,6 +953,8 @@ impl typ_tag {
 }
 
 pub fn parse_typ_tag_<'a>(st: State) -> impl Parser<&'a str, Output = typ_tag> {
+    st.indent();
+    println!("parse_typ_tag");
     symbol("#")
         .with(parse_id(st.incr()))
         .and(optional(symbol(":").with(parse_typ(st.incr()))))
@@ -957,6 +982,8 @@ pub struct typ_bind {
 }
 
 pub fn parse_typ_bind_<'a>(st: State) -> impl Parser<&'a str, Output = typ_bind> {
+    st.indent();
+    println!("parse_typ_bind");
     struct_parser! {
         typ_bind {
             id: parse_id(st.incr()),
@@ -1992,6 +2019,8 @@ pub enum exp_nest {
 }
 
 pub fn parse_exp_nest_<'a>(st: State) -> impl Parser<&'a str, Output = exp_nest> {
+    st.indent();
+    println!("parse_exp_nest");
     parse_block(st.incr())
         .map(exp_nest::block)
         .or(parse_exp(st.incr()).map(exp_nest::exp))
@@ -2027,6 +2056,8 @@ impl block {
 }
 
 pub fn parse_block_<'a>(st: State) -> impl Parser<&'a str, Output = block> {
+    st.indent();
+    println!("parse_block");
     braces(sep_end_by(parse_dec(st.incr()), symbol(";"))).map(block::new)
 }
 
@@ -2057,6 +2088,8 @@ impl case {
 }
 
 pub fn parse_case_<'a>(st: State) -> impl Parser<&'a str, Output = case> {
+    st.indent();
+    println!("parse_case");
     keyword("case")
         .with(parse_pat_nullary(st.incr()))
         .and(parse_exp_nest(st.incr()))
@@ -2090,6 +2123,8 @@ impl catch {
 }
 
 pub fn parse_catch_<'a>(st: State) -> impl Parser<&'a str, Output = catch> {
+    st.indent();
+    println!("parse_catch");
     keyword("catch")
         .with(parse_pat_nullary(st.incr()))
         .and(parse_exp_nest(st.incr()))
@@ -2125,6 +2160,8 @@ impl exp_field {
 }
 
 pub fn parse_exp_field_<'a>(st: State) -> impl Parser<&'a str, Output = exp_field> {
+    st.indent();
+    println!("parse_exp_field");
     parse_var_opt(parse_id(st.incr()))
         .and(optional(symbol(":").with(parse_typ(st.incr()))))
         .and(optional(symbol("=").with(parse_exp(st.incr()))))
@@ -2153,6 +2190,8 @@ pub struct dec_field {
 }
 
 pub fn parse_dec_field_<'a>(st: State) -> impl Parser<&'a str, Output = dec_field> {
+    st.indent();
+    println!("parse_dec_field");
     struct_parser! {
         dec_field {
             vis: optional(parse_vis(st.incr())),
@@ -2254,6 +2293,8 @@ pub enum pat_plain {
 }
 
 pub fn parse_pat_plain_<'a>(st: State) -> impl Parser<&'a str, Output = pat_plain> {
+    st.indent();
+    println!("parse_pat_plain");
     symbol("_")
         .with(value(pat_plain::underscore))
         .or(parse_id(st.incr()).map(pat_plain::id))
@@ -2282,6 +2323,8 @@ pub enum pat_nullary {
 }
 
 pub fn parse_pat_nullary_<'a>(st: State) -> impl Parser<&'a str, Output = pat_nullary> {
+    st.indent();
+    println!("parse_pat_nullary");
     braces(sep_end_by(parse_pat_field(st.incr()), symbol(";")))
         .map(pat_nullary::field)
         .or(parse_pat_plain(st.incr()).map(pat_nullary::plain))
@@ -2327,6 +2370,8 @@ impl pat_un {
 }
 
 pub fn parse_pat_un_<'a>(st: State) -> impl Parser<&'a str, Output = pat_un> {
+    st.indent();
+    println!("parse_pat_un");
     symbol("#")
         .with(parse_id(st.incr()))
         .and(optional(parse_pat_nullary(st.incr())))
@@ -2388,6 +2433,8 @@ impl pat_bin__post {
 }
 
 pub fn parse_pat_bin_<'a>(st: State) -> impl Parser<&'a str, Output = pat_bin> {
+    st.indent();
+    println!("parse_pat_bin");
     parse_pat_un(st.incr())
         .and(optional(
             keyword("or")
@@ -2419,6 +2466,8 @@ pub struct pat {
 }
 
 pub fn parse_pat_<'a>(st: State) -> impl Parser<&'a str, Output = pat> {
+    st.indent();
+    println!("parse_pat");
     struct_parser! {
         pat {
             bin: parse_pat_bin(st.incr())
@@ -2448,6 +2497,8 @@ pub struct pat_field {
 }
 
 pub fn parse_pat_field_<'a>(st: State) -> impl Parser<&'a str, Output = pat_field> {
+    st.indent();
+    println!("parse_pat_field");
     struct_parser! {
         pat_field {
             id: parse_id(st.incr()),
@@ -2483,6 +2534,8 @@ pub struct dec_var {
 }
 
 pub fn parse_dec_var_<'a>(st: State) -> impl Parser<&'a str, Output = dec_var> {
+    st.indent();
+    println!("parse_dec_var");
     struct_parser! {
         dec_var {
             id: keyword("var").with(parse_id(st.incr())),
@@ -2598,6 +2651,8 @@ impl dec_nonvar {
 }
 
 pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_nonvar> {
+    st.indent();
+    println!("parse_dec_nonvar");
     keyword("let")
         .with(parse_pat(st.incr()))
         .and(symbol("=").with(parse_exp(st.incr())))
@@ -2611,11 +2666,13 @@ pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_non
             .skip(symbol("="))
             .and(parse_typ(st.incr()))
             .map(dec_nonvar::dec_nonvar_type_dec))
-        .or(parse_obj_sort(st.incr())
-            .and(optional(parse_id(st.incr())))
-            .and(optional(symbol("=")))
-            .and(parse_obj_body(st.incr()))
-            .map(dec_nonvar::dec_nonvar_obj_dec))
+        .or(attempt(
+            parse_obj_sort(st.incr())
+                .and(optional(parse_id(st.incr())))
+                .and(optional(symbol("=")))
+                .and(parse_obj_body(st.incr())),
+        )
+        .map(dec_nonvar::dec_nonvar_obj_dec))
         .or(attempt(
             optional(parse_shared_pat_opt(st.incr()))
                 .skip(keyword("func"))
@@ -2626,9 +2683,9 @@ pub fn parse_dec_nonvar_<'a>(st: State) -> impl Parser<&'a str, Output = dec_non
                 ))))
                 .and(parse_pat_plain(st.incr()))
                 .and(optional(symbol(":").with(parse_typ(st.incr()))))
-                .and(parse_func_body(st.incr()))
-                .map(dec_nonvar::dec_nonvar_func),
-        ))
+                .and(parse_func_body(st.incr())),
+        )
+        .map(dec_nonvar::dec_nonvar_func))
         .or(optional(parse_shared_pat_opt(st.incr()))
             .and(optional(parse_obj_sort(st.incr())))
             .skip(keyword("class"))
@@ -2651,6 +2708,28 @@ parser! {
     }
 }
 
+#[test]
+fn test_parse_dec_nonvar() {
+    pretty_assertions::assert_eq!(
+        Ok((
+            dec_nonvar::let_dec(
+                pat {
+                    bin: pat_bin::un(pat_un::nullary(pat_nullary::plain(pat_plain::underscore)))
+                },
+                Box::new(exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(
+                    exp_nondec::bin(exp_bin::binop(
+                        Box::new(nat(1)),
+                        binop::add,
+                        Box::new(nat(3)),
+                    ))
+                ))))
+            ),
+            "",
+        )),
+        parse_dec_nonvar(State::new()).parse("func(name: nat): ?nat { return (name + 20); }"),
+    );
+}
+
 /*
 <dec> ::=
     <dec_var>
@@ -2666,9 +2745,11 @@ pub enum dec {
 }
 
 pub fn parse_dec_<'a>(st: State) -> impl Parser<&'a str, Output = dec> {
-    parse_dec_var(st.incr())
+    st.indent();
+    println!("parse_dec");
+    attempt(parse_dec_var(st.incr()))
         .map(dec::var)
-        .or(parse_dec_nonvar(st.incr()).map(dec::nonvar))
+        .or(attempt(parse_dec_nonvar(st.incr())).map(dec::nonvar))
         .or(parse_exp_nondec(st.incr()).map(dec::nondec))
 }
 
@@ -2697,6 +2778,8 @@ pub enum func_body {
 }
 
 pub fn parse_func_body_<'a>(st: State) -> impl Parser<&'a str, Output = func_body> {
+    st.indent();
+    println!("parse_func_body");
     symbol("=")
         .with(parse_exp(st.incr()).map(func_body::exp))
         .or(parse_block(st.incr()).map(func_body::block))
@@ -2722,6 +2805,8 @@ pub struct obj_body {
 }
 
 pub fn parse_obj_body_<'a>(st: State) -> impl Parser<&'a str, Output = obj_body> {
+    st.indent();
+    println!("parse_obj_body");
     struct_parser! {
         obj_body {
             fields: braces(sep_end_by(parse_dec_field(st.incr()), symbol(";")))
@@ -2761,6 +2846,8 @@ impl class_body {
 }
 
 pub fn parse_class_body_<'a>(st: State) -> impl Parser<&'a str, Output = class_body> {
+    st.indent();
+    println!("parse_class_body");
     optional(symbol("=").with(optional(parse_id(st.incr()))))
         .and(parse_obj_body(st.incr()))
         .map(class_body::new)
@@ -2787,10 +2874,13 @@ pub struct imp {
     pub name: text,
 }
 
+fn is_some<U>(o: Option<U>) -> bool {
+    o.is_some()
+}
+
 pub fn parse_imp_<'a>(st: State) -> impl Parser<&'a str, Output = imp> {
-    fn is_some<U>(o: Option<U>) -> bool {
-        o.is_some()
-    }
+    st.indent();
+    println!("parse_imp");
     struct_parser! {
         imp {
             _: keyword("import"),
@@ -2822,6 +2912,8 @@ pub struct prog {
 }
 
 pub fn parse_prog_<'a>(st: State) -> impl Parser<&'a str, Output = prog> {
+    st.indent();
+    println!("parse_prog");
     struct_parser! {
         prog {
             imps: sep_end_by(parse_imp(st.incr()), symbol(";")),
