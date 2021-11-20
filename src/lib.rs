@@ -40,16 +40,19 @@ pub type nat = Integer;
 pub type float = Float;
 pub type text = String;
 
+fn is_alphabetic(c: char) -> bool {
+    c.is_alphabetic()
+}
+
+fn is_alphanumeric(c: char) -> bool {
+    c.is_alphanumeric()
+}
+
+fn cons((x, xs): (char, Vec<char>)) -> String {
+    vec![x].into_iter().chain(xs.into_iter()).collect()
+}
+
 pub fn parse_id_<'a>(st: State) -> impl Parser<&'a str, Output = id> {
-    fn is_alphabetic(c: char) -> bool {
-        c.is_alphabetic()
-    }
-    fn is_alphanumeric(c: char) -> bool {
-        c.is_alphanumeric()
-    }
-    fn cons((x, xs): (char, Vec<char>)) -> String {
-        vec![x].into_iter().chain(xs.into_iter()).collect()
-    }
     st.indent();
     println!("parse_id");
     satisfy(is_alphabetic)
@@ -101,16 +104,18 @@ fn test_parse_bool() {
     );
 }
 
+fn is_numeric(c: char) -> bool {
+    c.is_numeric()
+}
+
+fn parse_integer<'a>(xs: Vec<char>) -> impl Parser<&'a str, Output = Integer> {
+    match Integer::parse(xs.into_iter().collect::<String>()).map(Integer::from) {
+        Ok(int) => value(int).left(),
+        Err(_err) => unexpected_any("nat").right(),
+    }
+}
+
 pub fn parse_nat_<'a>(st: State) -> impl Parser<&'a str, Output = nat> {
-    fn is_numeric(c: char) -> bool {
-        c.is_numeric()
-    }
-    fn parse_integer<'a>(xs: Vec<char>) -> impl Parser<&'a str, Output = Integer> {
-        match Integer::parse(xs.into_iter().collect::<String>()).map(Integer::from) {
-            Ok(int) => value(int).left(),
-            Err(_err) => unexpected_any("nat").right(),
-        }
-    }
     st.indent();
     println!("parse_nat");
     many(satisfy(is_numeric)).skip(spaces()).then(parse_integer)
@@ -143,25 +148,25 @@ fn test_parse_nat() {
 // floating point"),     )
 // }
 
+fn parse_rug_float<'a>(xs: Vec<char>) -> impl Parser<&'a str, Output = Float> {
+    fn with_53<T>(v: T) -> Float
+    where
+        Float: rug::Assign<T>,
+    {
+        Float::with_val(53, v)
+    }
+    match Float::parse(xs.into_iter().collect::<String>()).map(with_53) {
+        Ok(f) => value(f).left(),
+        Err(_err) => unexpected_any("float").right(),
+    }
+}
+
 pub fn parse_float_<'a>(st: State) -> impl Parser<&'a str, Output = float> {
-    fn is_numeric(c: char) -> bool {
-        c.is_numeric()
-    }
-    fn parse_float<'a>(xs: Vec<char>) -> impl Parser<&'a str, Output = Float> {
-        fn with_53<T>(v: T) -> Float
-        where
-            Float: rug::Assign<T>,
-        {
-            Float::with_val(53, v)
-        }
-        match Float::parse(xs.into_iter().collect::<String>()).map(with_53) {
-            Ok(f) => value(f).left(),
-            Err(_err) => unexpected_any("float").right(),
-        }
-    }
     st.indent();
     println!("parse_float");
-    many(satisfy(is_numeric)).skip(spaces()).then(parse_float)
+    many(satisfy(is_numeric))
+        .skip(spaces())
+        .then(parse_rug_float)
 }
 
 parser! {
@@ -182,11 +187,12 @@ fn test_parse_float() {
 }
 */
 
+fn not_quote(c: char) -> bool {
+    c != '\''
+}
+
 // jww (2021-11-18): What is the grammer here?
 pub fn parse_char_<'a>(st: State) -> impl Parser<&'a str, Output = char> {
-    fn not_quote(c: char) -> bool {
-        c != '\''
-    }
     st.indent();
     println!("parse_char");
     char('\'').with(satisfy(not_quote)).skip(char('\''))
@@ -200,11 +206,12 @@ parser! {
     }
 }
 
+fn not_double_quote(c: char) -> bool {
+    c != '"'
+}
+
 // jww (2021-11-18): What is the grammer here?
 pub fn parse_text_<'a>(st: State) -> impl Parser<&'a str, Output = text> {
-    fn not_double_quote(c: char) -> bool {
-        c != '"'
-    }
     st.indent();
     println!("parse_text");
     char('"')
@@ -288,12 +295,13 @@ pub fn operator<'a>(s: &'static str) -> impl Parser<&'a str, Output = &str> {
     string(s).skip(spaces())
 }
 
+fn first_is_some<U, V>((x, y): (Option<U>, V)) -> (bool, V) {
+    (x.is_some(), y)
+}
+
 pub fn parse_var_opt<'a, T>(
     p: impl Parser<&'a str, Output = T>,
 ) -> impl Parser<&'a str, Output = (bool, T)> {
-    fn first_is_some<U, V>((x, y): (Option<U>, V)) -> (bool, V) {
-        (x.is_some(), y)
-    }
     optional(keyword("var")).and(p).map(first_is_some)
 }
 
