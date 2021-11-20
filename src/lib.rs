@@ -4,7 +4,7 @@ use combine::parser::char::{char, spaces, string};
 use combine::parser::combinator::Either;
 use combine::{
     attempt, between, choice, many, optional, parser, satisfy, sep_by, sep_end_by, sep_end_by1,
-    struct_parser, unexpected_any, value, Parser, StdParseResult,
+    struct_parser, unexpected_any, value, Parser,
 };
 use rug::{Float, Integer};
 
