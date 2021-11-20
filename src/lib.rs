@@ -60,6 +60,7 @@ pub fn parse_id_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = i
     println!("parse_id");
     satisfy(is_alphabetic)
         .and(many(satisfy(is_alphanumeric)))
+        .skip(spaces())
         .map(cons)
 }
 
@@ -74,7 +75,7 @@ parser! {
 #[test]
 fn test_parse_id() {
     pretty_assertions::assert_eq!(
-        Ok(("HelloWorld".to_string(), " GoodbyeWorld")),
+        Ok(("HelloWorld".to_string(), "GoodbyeWorld")),
         parse_id(State::new()).easy_parse("HelloWorld GoodbyeWorld"),
     );
 }
@@ -112,7 +113,8 @@ fn is_numeric(c: char) -> bool {
 }
 
 fn parse_integer<'a>(xs: Vec<char>) -> impl Parser<easy::Stream<&'a str>, Output = Integer> {
-    match Integer::parse(xs.into_iter().collect::<String>()).map(Integer::from) {
+    let string: String = xs.into_iter().collect::<String>();
+    match Integer::parse(string.clone()).map(Integer::from) {
         Ok(int) => value(int).left(),
         Err(_err) => unexpected_any("nat").right(),
     }
@@ -708,11 +710,10 @@ impl typ_pre {
 pub fn parse_typ_pre_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_pre> {
     st.indent();
     println!("parse_typ_pre");
-    parse_typ_un(st.incr())
-        .map(typ_pre::un)
-        .or(keyword("async")
-            .with(parse_typ_pre(st.incr()))
-            .map(typ_pre::typ_pre_async_))
+    keyword("async")
+        .with(parse_typ_pre(st.incr()))
+        .map(typ_pre::typ_pre_async_)
+        .or(attempt(parse_typ_un(st.incr())).map(typ_pre::un))
         .or(parse_obj_sort(st.incr())
             .and(parse_typ_obj(st.incr()))
             .map(typ_pre::typ_pre_obj))
@@ -762,7 +763,7 @@ impl typ_nobin {
 pub fn parse_typ_nobin_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_nobin> {
     st.indent();
     println!("parse_typ_nobin");
-    parse_typ_pre(st.incr())
+    attempt(parse_typ_pre(st.incr()))
         .map(typ_nobin::pre)
         .or(optional(parse_func_sort_opt(st.incr()))
             .and(optional(angles(sep_by(
@@ -847,11 +848,13 @@ impl typ_item {
 pub fn parse_typ_item_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_item> {
     st.indent();
     println!("parse_typ_item");
-    parse_id(st.incr())
-        .skip(symbol(":"))
-        .and(parse_typ(st.incr()))
-        .map(typ_item::typ_item_colon)
-        .or(parse_typ(st.incr()).map(typ_item::typ))
+    attempt(
+        parse_id(st.incr())
+            .skip(symbol(":"))
+            .and(parse_typ(st.incr())),
+    )
+    .map(typ_item::typ_item_colon)
+    .or(parse_typ(st.incr()).map(typ_item::typ))
 }
 
 parser! {
@@ -930,19 +933,21 @@ impl typ_field {
 pub fn parse_typ_field_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = typ_field> {
     st.indent();
     println!("parse_typ_field");
-    parse_var_opt(parse_id(st.incr()))
+    attempt(
+        parse_var_opt(parse_id(st.incr()))
+            .skip(symbol(":"))
+            .and(parse_typ(st.incr())),
+    )
+    .map(typ_field::typ_field_colon)
+    .or(parse_id(st.incr())
+        .and(optional(angles(sep_by(
+            parse_typ_bind(st.incr()),
+            symbol(","),
+        ))))
+        .and(parse_typ_nullary(st.incr()))
         .skip(symbol(":"))
         .and(parse_typ(st.incr()))
-        .map(typ_field::typ_field_colon)
-        .or(parse_id(st.incr())
-            .and(optional(angles(sep_by(
-                parse_typ_bind(st.incr()),
-                symbol(","),
-            ))))
-            .and(parse_typ_nullary(st.incr()))
-            .skip(symbol(":"))
-            .and(parse_typ(st.incr()))
-            .map(typ_field::typ_field_field))
+        .map(typ_field::typ_field_field))
 }
 
 parser! {
@@ -1052,10 +1057,10 @@ pub fn parse_lit_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = 
     keyword("null")
         .with(value(lit::null))
         .or(parse_bool(st.incr()).map(lit::bool_))
-        .or(attempt(parse_float(st.incr())).map(lit::float))
-        .or(parse_nat(st.incr()).map(lit::nat))
         .or(parse_char(st.incr()).map(lit::char_))
         .or(parse_text(st.incr()).map(lit::text))
+        .or(attempt(parse_float(st.incr())).map(lit::float))
+        .or(parse_nat(st.incr()).map(lit::nat))
 }
 
 parser! {
@@ -1408,9 +1413,9 @@ pub enum exp_plain {
 pub fn parse_exp_plain_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_plain> {
     st.indent();
     println!("parse_exp_plain");
-    parse_lit(st.incr())
-        .map(exp_plain::lit)
-        .or(parens(sep_by(parse_exp(st.incr()), symbol(","))).map(exp_plain::exp))
+    parens(sep_by(parse_exp(st.incr()), symbol(",")))
+        .map(exp_plain::exp)
+        .or(parse_lit(st.incr()).map(exp_plain::lit))
 }
 
 parser! {
@@ -1440,9 +1445,9 @@ pub fn parse_exp_nullary_<'a>(
 ) -> impl Parser<easy::Stream<&'a str>, Output = exp_nullary> {
     st.indent();
     println!("parse_exp_nullary");
-    parse_exp_obj(st.incr())
+    attempt(parse_exp_obj(st.incr()))
         .map(exp_nullary::obj)
-        .or(parse_exp_plain(st.incr()).map(exp_nullary::plain))
+        .or(attempt(parse_exp_plain(st.incr())).map(exp_nullary::plain))
         .or(parse_id(st.incr()).map(exp_nullary::id))
 }
 
@@ -1613,12 +1618,11 @@ pub fn parse_exp_un_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output
         .or(keyword("debug_show")
             .with(parse_exp_un(st.incr()))
             .map(exp_un::exp_un_debug_show))
-        .or(parse_unop(st.incr())
-            .and(parse_exp_un(st.incr()))
-            .map(exp_un::exp_un_unop))
-        .or(parse_unassign(st.incr())
-            .and(parse_exp_un(st.incr()))
-            .map(exp_un::exp_un_unassign))
+        .or(attempt(parse_unop(st.incr()).and(parse_exp_un(st.incr()))).map(exp_un::exp_un_unop))
+        .or(
+            attempt(parse_unassign(st.incr()).and(parse_exp_un(st.incr())))
+                .map(exp_un::exp_un_unassign),
+        )
         .or(parse_exp_post(st.incr()).map(exp_un::post))
 }
 
@@ -1909,6 +1913,27 @@ parser! {
     }
 }
 
+#[test]
+fn test_parse_exp_nondec() {
+    pretty_assertions::assert_eq!(
+        Ok((
+            exp_nondec::return_(Some(exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(
+                exp_nondec::bin(exp_bin::un(exp_un::post(exp_post::nullary(
+                    exp_nullary::plain(exp_plain::exp(vec![exp::exp_nonvar(Box::new(
+                        exp_nonvar::exp_nondec(exp_nondec::bin(exp_bin::binop(
+                            Box::new(var("name")),
+                            binop::add,
+                            Box::new(nat(20)),
+                        )))
+                    ))]))
+                ))))
+            ))))),
+            "",
+        )),
+        parse_exp_nondec(State::new()).easy_parse("return (name + 20)"),
+    );
+}
+
 /*
 <exp_nonvar> ::=
     <exp_nondec>
@@ -1924,7 +1949,7 @@ pub enum exp_nonvar {
 pub fn parse_exp_nonvar_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp_nonvar> {
     st.indent();
     println!("parse_exp_nonvar");
-    parse_exp_nondec(st.incr())
+    attempt(parse_exp_nondec(st.incr()))
         .map(exp_nonvar::exp_nondec)
         .or(parse_dec_nonvar(st.incr()).map(exp_nonvar::dec_nonvar))
 }
@@ -1962,7 +1987,7 @@ impl exp {
 pub fn parse_exp_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output = exp> {
     st.indent();
     println!("parse_exp");
-    parse_exp_nonvar(st.incr())
+    attempt(parse_exp_nonvar(st.incr()))
         .map(exp::exp_exp_nonvar)
         .or(parse_dec_var(st.incr()).map(exp::exp_dec_var))
 }
@@ -1982,6 +2007,13 @@ fn nat(x: usize) -> exp_bin {
     ))))
 }
 
+#[cfg(test)]
+fn var(s: &str) -> exp_bin {
+    exp_bin::un(exp_un::post(exp_post::nullary(exp_nullary::id(
+        s.to_string(),
+    ))))
+}
+
 #[test]
 fn test_parse_exp() {
     pretty_assertions::assert_eq!(
@@ -1997,8 +2029,17 @@ fn test_parse_exp() {
                 exp_bin::binop(Box::new(nat(1)), binop::add, Box::new(nat(3)))
             )))),
             ""
-        ),),
+        )),
         parse_exp(State::new()).easy_parse("1 + 3"),
+    );
+    pretty_assertions::assert_eq!(
+        Ok((
+            exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(exp_nondec::bin(
+                exp_bin::binop(Box::new(var("name")), binop::add, Box::new(nat(3)))
+            )))),
+            ""
+        )),
+        parse_exp(State::new()).easy_parse("name + 3"),
     );
     pretty_assertions::assert_eq!(
         Ok((
@@ -2322,9 +2363,9 @@ pub fn parse_pat_plain_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Out
     println!("parse_pat_plain");
     symbol("_")
         .with(value(pat_plain::underscore))
-        .or(parse_id(st.incr()).map(pat_plain::id))
         .or(parse_lit(st.incr()).map(pat_plain::lit))
         .or(parens(sep_by(parse_pat_bin(st.incr()), symbol(","))).map(pat_plain::bins))
+        .or(parse_id(st.incr()).map(pat_plain::id))
 }
 
 parser! {
@@ -2406,9 +2447,7 @@ pub fn parse_pat_un_<'a>(st: State) -> impl Parser<easy::Stream<&'a str>, Output
         .or(symbol("?")
             .with(parse_pat_un(st.incr()))
             .map(pat_un::pat_un_question))
-        .or(parse_unop(st.incr())
-            .and(parse_lit(st.incr()))
-            .map(pat_un::pat_un_unop_lit))
+        .or(attempt(parse_unop(st.incr()).and(parse_lit(st.incr()))).map(pat_un::pat_un_unop_lit))
         .or(parse_pat_nullary(st.incr()).map(pat_un::nullary))
 }
 
@@ -2739,18 +2778,40 @@ parser! {
 fn test_parse_dec_nonvar() {
     pretty_assertions::assert_eq!(
         Ok((
-            dec_nonvar::let_dec(
-                pat {
-                    bin: pat_bin::un(pat_un::nullary(pat_nullary::plain(pat_plain::underscore)))
-                },
-                Box::new(exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(
-                    exp_nondec::bin(exp_bin::binop(
-                        Box::new(nat(1)),
-                        binop::add,
-                        Box::new(nat(3)),
-                    ))
-                ))))
-            ),
+            dec_nonvar::func {
+                shared_pat: None,
+                id: None,
+                binds: None,
+                plain: pat_plain::bins(vec![pat_bin::colon(
+                    Box::new(pat_bin::un(pat_un::nullary(pat_nullary::plain(
+                        pat_plain::id("name".to_string())
+                    )))),
+                    typ::nobin(Box::new(typ_nobin::pre(typ_pre::un(typ_un::nullary(
+                        typ_nullary::dot(vec!["nat".to_string()], None)
+                    ))))),
+                )]),
+                typ: Some(typ::nobin(Box::new(typ_nobin::pre(typ_pre::un(
+                    typ_un::question(Box::new(typ_un::nullary(typ_nullary::dot(
+                        vec!["nat".to_string()],
+                        None
+                    ))))
+                ))))),
+                body: func_body::block(block {
+                    decs: vec![dec::nondec(exp_nondec::return_(Some(exp::exp_nonvar(
+                        Box::new(exp_nonvar::exp_nondec(exp_nondec::bin(exp_bin::un(
+                            exp_un::post(exp_post::nullary(exp_nullary::plain(exp_plain::exp(
+                                vec![exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(
+                                    exp_nondec::bin(exp_bin::binop(
+                                        Box::new(var("name")),
+                                        binop::add,
+                                        Box::new(nat(20)),
+                                    ))
+                                )))]
+                            )))),
+                        ))))
+                    ))))],
+                }),
+            },
             "",
         )),
         parse_dec_nonvar(State::new()).easy_parse("func(name: nat): ?nat { return (name + 20); }"),

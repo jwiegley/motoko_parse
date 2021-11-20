@@ -18,7 +18,7 @@ with pkgs; rustPlatform.buildRustPackage rec {
 
   cargoBuildFlags = [];
 
-  nativeBuildInputs = [ rls rustfmt clippy pkg-config ];
+  nativeBuildInputs = [ rls rustfmt clippy pkg-config wasm-pack ];
   buildInputs = [ openssl protobuf ]
     ++ (lib.optional stdenv.isDarwin darwin.apple_sdk.frameworks.Security);
 
