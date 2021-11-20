@@ -1,10 +1,11 @@
+#![recursion_limit = "1024"]
 #![allow(non_camel_case_types)]
 
 use combine::parser::char::{char, spaces, string};
 use combine::parser::combinator::Either;
 use combine::{
-    attempt, between, choice, many, optional, parser, satisfy, sep_by, sep_end_by, sep_end_by1,
-    struct_parser, unexpected_any, value, Parser,
+    attempt, between, choice, many, many1, optional, parser, satisfy, sep_by, sep_end_by,
+    sep_end_by1, struct_parser, unexpected_any, value, Parser,
 };
 use rug::{Float, Integer};
 
@@ -148,7 +149,8 @@ fn test_parse_nat() {
 // floating point"),     )
 // }
 
-fn parse_rug_float<'a>(xs: Vec<char>) -> impl Parser<&'a str, Output = Float> {
+// jww (2021-11-20): Finish this
+fn parse_rug_float<'a>((xs, _ys): (Vec<char>, Vec<char>)) -> impl Parser<&'a str, Output = Float> {
     fn with_53<T>(v: T) -> Float
     where
         Float: rug::Assign<T>,
@@ -165,6 +167,8 @@ pub fn parse_float_<'a>(st: State) -> impl Parser<&'a str, Output = float> {
     st.indent();
     println!("parse_float");
     many(satisfy(is_numeric))
+        .skip(char('.'))
+        .and(many1(satisfy(is_numeric)))
         .skip(spaces())
         .then(parse_rug_float)
 }
@@ -195,7 +199,9 @@ fn not_quote(c: char) -> bool {
 pub fn parse_char_<'a>(st: State) -> impl Parser<&'a str, Output = char> {
     st.indent();
     println!("parse_char");
-    char('\'').with(satisfy(not_quote)).skip(char('\''))
+    char('\'')
+        .with(satisfy(not_quote))
+        .skip(char('\'').skip(spaces()))
 }
 
 parser! {
@@ -217,6 +223,7 @@ pub fn parse_text_<'a>(st: State) -> impl Parser<&'a str, Output = text> {
     char('"')
         .with(many(satisfy(not_double_quote)))
         .skip(char('"'))
+        .skip(spaces())
 }
 
 parser! {
@@ -996,7 +1003,7 @@ pub fn parse_lit_<'a>(st: State) -> impl Parser<&'a str, Output = lit> {
     keyword("null")
         .with(value(lit::null))
         .or(parse_bool(st.incr()).map(lit::bool_))
-        .or(parse_float(st.incr()).map(lit::float))
+        .or(attempt(parse_float(st.incr())).map(lit::float))
         .or(parse_nat(st.incr()).map(lit::nat))
         .or(parse_char(st.incr()).map(lit::char_))
         .or(parse_text(st.incr()).map(lit::text))
@@ -1010,7 +1017,6 @@ parser! {
     }
 }
 
-/*
 #[test]
 fn test_parse_lit() {
     pretty_assertions::assert_eq!(
@@ -1025,10 +1031,11 @@ fn test_parse_lit() {
         Ok((lit::nat(Integer::from(123)), "hello")),
         parse_lit(State::new()).parse("123 hello"),
     );
-    pretty_assertions::assert_eq!(
-        Ok((lit::float(Float::with_val(53, 1.3)), "hello")),
-        parse_lit(State::new()).parse("1.3 hello"),
-    );
+    // jww (2021-11-20): Not working yet
+    // pretty_assertions::assert_eq!(
+    //     Ok((lit::float(Float::with_val(53, 1.3)), "hello")),
+    //     parse_lit(State::new()).parse("1.3 hello"),
+    // );
     pretty_assertions::assert_eq!(
         Ok((lit::char_('c'), "hello")),
         parse_lit(State::new()).parse("'c' hello"),
@@ -1038,7 +1045,6 @@ fn test_parse_lit() {
         parse_lit(State::new()).parse("\"string\" hello"),
     );
 }
-*/
 
 /*
  * OPERATORS
@@ -1917,18 +1923,61 @@ parser! {
     }
 }
 
-/*
+#[cfg(test)]
+fn nat(x: usize) -> exp_bin {
+    exp_bin::un(exp_un::post(exp_post::nullary(exp_nullary::plain(
+        exp_plain::lit(lit::nat(Integer::from(x))),
+    ))))
+}
+
 #[test]
 fn test_parse_exp() {
-    println!("exp = {:#?}", parse_exp(State::new()).parse("1"));
-    // println!("exp = {:#?}", parse_exp().parse("1 + 3"));
-    // println!("exp = {:#?}", parse_exp().parse("(1 + 3) * 4 == 72 / 2"));
-    // pretty_assertions::assert_eq!(
-    //     Ok((todo!(), "")),
-    //     parse_exp().parse("(1 + 3) * 4 == 72 / 2"),
-    // );
+    pretty_assertions::assert_eq!(
+        Ok((
+            exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(exp_nondec::bin(nat(1))))),
+            "",
+        )),
+        parse_exp(State::new()).parse("1"),
+    );
+    pretty_assertions::assert_eq!(
+        Ok((
+            exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(exp_nondec::bin(
+                exp_bin::binop(Box::new(nat(1)), binop::add, Box::new(nat(3)))
+            )))),
+            ""
+        ),),
+        parse_exp(State::new()).parse("1 + 3"),
+    );
+    pretty_assertions::assert_eq!(
+        Ok((
+            exp::exp_nonvar(Box::new(exp_nonvar::exp_nondec(exp_nondec::bin(
+                exp_bin::binop(
+                    Box::new(exp_bin::un(exp_un::post(exp_post::nullary(
+                        exp_nullary::plain(exp_plain::exp(vec![exp::exp_nonvar(Box::new(
+                            exp_nonvar::exp_nondec(exp_nondec::bin(exp_bin::binop(
+                                Box::new(nat(1)),
+                                binop::add,
+                                Box::new(nat(3)),
+                            )))
+                        ))]))
+                    )))),
+                    binop::mul,
+                    Box::new(exp_bin::relop(
+                        Box::new(nat(4)),
+                        relop::eq,
+                        Box::new(exp_bin::binop(
+                            Box::new(nat(72)),
+                            binop::div,
+                            Box::new(nat(2))
+                        ))
+                    ))
+                )
+            )))),
+            "",
+        )),
+        parse_exp(State::new()).parse("(1 + 3) * 4 == 72 / 2"),
+    );
 }
-*/
 
 /*
 <exp_nest> ::=
