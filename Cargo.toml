@@ -3,9 +3,6 @@ name = "motoko_parse"
 version = "0.1.0"
 edition = "2018"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
 combine = { version = "4.6", features = ["regex", "std"] }
 # rug = "1.13"
@@ -16,3 +13,9 @@ pretty_assertions = "1.0"
 [[test]]
 name = "basic-tests"
 path = "tests/basic.rs"
+
+[profile.release]
+opt-level = "z"  # Optimize for size.
+lto = true
+codegen-units = 1
+panic = "abort"
