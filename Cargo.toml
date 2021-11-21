@@ -8,7 +8,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 combine = { version = "4.6", features = ["regex", "std"] }
-rug = "1.13"
+# rug = "1.13"
+
+[dev-dependencies]
 pretty_assertions = "1.0"
 
 [[test]]
